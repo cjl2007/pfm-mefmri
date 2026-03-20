@@ -157,17 +157,6 @@ When `NSI_USE_EXTERNAL_CLI=1`, NSI outputs are written under:
 
 - `func/qa/NSI/`
 
-## PFM Notes
-
-PFM supports two execution strategies through `PFM_STRATEGY`:
-
-- `ridge_fusion`: in-tree Python ridge-fusion implementation
-- `infomap`: Python community-detection path
-
-The bundled external toolbox dependency in this release is:
-
-- `lib/pfm-nsi`
-
 ## Author
 
 Chuck Lynch  
