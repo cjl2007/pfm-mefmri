@@ -7,10 +7,18 @@
 # =============================================================================
 # 1) Required Paths and Environment Settings
 # =============================================================================
+# TODO(user): review and set machine-specific values in this section before
+# first run on a new system. At minimum, confirm:
+# - CHARM_BIN (if charm is not on PATH)
+# - TEDANA_ENV / TEDANA_ACTIVATE_MODE
+# - NSI_EXTERNAL_ROOT (only if NSI_USE_EXTERNAL_CLI=1)
+# - FS_LICENSE / FS_LICENSE_FILE in your shell environment
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEDIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EnvironmentScript="$MEDIR/HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh"
 
+# TODO(user): set CHARM_BIN to your local SimNIBS CHARM binary path if "charm"
+# is not already on PATH. Leave empty to use PATH lookup in modules.
 CHARM_BIN=""
 
 # PFM network priors:
@@ -90,11 +98,11 @@ VOL2SURF_CIFTI_STAMP=""               # Optional non-canonical suffix for experi
 # =============================================================================
 # Modern defaults:
 # - tedana 0.26.00 path (via environment)
-# - Kundu PCA selection
+# - tedana PCA set by retained variance fraction
 TEDANA_ENV="mefmri_env" 			  # name of the conda environment used for tedana
 TEDANA_ACTIVATE_MODE="conda_activate" # conda_activate|conda_run|direct
 TEDANA_COMPAT_MODE="modern"           # recommended default
-MEPCA="350"                           # default kundu
+MEPCA="0.95"                          # retain 95% variance before ICA
 
 MaxIterations=500
 MaxRestarts=5
@@ -200,6 +208,7 @@ NSI_USABILITY_MODEL=1
 NSI_RELIABILITY_MODEL=0
 NSI_RELIABILITY_NSI_T=10
 NSI_RELIABILITY_QUERY_T=60
+# Bundled local NSI fork.
 NSI_EXTERNAL_ROOT="$MEDIR/lib/pfm-nsi"
 NSI_EXTERNAL_ENTRY="pfm_nsi.cli"
 NSI_EXTERNAL_OUT_SUBDIR=""              # empty => write directly to func/qa/NSI
@@ -248,7 +257,7 @@ PFM_INFOMAP_WRAPPER="$PFM_RESOURCES_ROOT/PFM-InfoMap-Tmp/pfm_wrapper.m"
 PFM_RF_ENABLE=1
 PFM_RF_OUTFILE="RidgeFusion_VTX"
 PFM_RF_FC_WEIGHT=1.0
-PFM_RF_SPATIAL_WEIGHT=0.1
+PFM_RF_SPATIAL_WEIGHT=0.25
 PFM_RF_LAMBDA=10
 PFM_RF_LOCAL_EXCLUSION_MM=10
 PFM_RF_SUBCORT_REGRESS_ENABLE=1

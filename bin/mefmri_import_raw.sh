@@ -8,14 +8,14 @@
 #   bash bin/mefmri_import_raw.sh \
 #     /path/to/raw_dicom_export \
 #     /path/to/study/ME001 \
-#     /path/to/config/mefmri_import_raw_bd2_config.sh \
+#     /path/to/config/mefmri_import_raw_config.sh \
 #     --session 1
 #
 # Dry-run example:
 #   bash bin/mefmri_import_raw.sh \
 #     /path/to/raw_dicom_export \
 #     /path/to/study/ME001 \
-#     /path/to/config/mefmri_import_raw_bd2_config.sh \
+#     /path/to/config/mefmri_import_raw_config.sh \
 #     --session 1 \
 #     --dry-run
 
@@ -31,7 +31,7 @@ Example:
   bash bin/mefmri_import_raw.sh \
     /path/to/raw_dicom_export \
     /path/to/study/ME001 \
-    config/mefmri_import_raw_bd2_config.sh \
+    config/mefmri_import_raw_config.sh \
     --dry-run
 EOF
 }
@@ -52,7 +52,7 @@ shift 2
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEDIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$MEDIR/config/mefmri_import_config_current_protocol.sh"
+CONFIG_FILE="$MEDIR/config/mefmri_import_raw_config.sh"
 
 if [[ "${1:-}" != "" && "${1:-}" != --* ]]; then
   CONFIG_FILE="$1"

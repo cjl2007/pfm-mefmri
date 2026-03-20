@@ -28,8 +28,8 @@ def save_scalar_like(ref_img: nib.Cifti2Image, values: np.ndarray, out_path: Pat
     nib.save(nib.Cifti2Image(out.T, hdr, nifti_header=ref_img.nifti_header), str(out_path))
 
 
-def save_prob_ptseries(ref_img: nib.Cifti2Image, prob: np.ndarray, out_path: Path) -> None:
-    # prob: n_gray x n_net -> ptseries expected time x gray
+def save_prob_dtseries(ref_img: nib.Cifti2Image, prob: np.ndarray, out_path: Path) -> None:
+    # prob: n_gray x n_net -> dense timeseries laid out as maps x grayordinates
     axes = [ref_img.header.get_axis(i) for i in range(ref_img.ndim)]
     series = SeriesAxis(start=0.0, step=1.0, size=prob.shape[1])
     hdr = nib.Cifti2Header.from_axes((series, axes[1]))
@@ -186,7 +186,7 @@ def main() -> int:
     )
 
     save_scalar_like(img, r2, outdir / f"{args.outfile}_R2.dtseries.nii")
-    save_prob_ptseries(img, prob_all, outdir / f"{args.outfile}_ProbMaps.ptseries.nii")
+    save_prob_dtseries(img, prob_all, outdir / f"{args.outfile}_ProbMaps.dtseries.nii")
     try:
         if label_tmp.exists():
             label_tmp.unlink()

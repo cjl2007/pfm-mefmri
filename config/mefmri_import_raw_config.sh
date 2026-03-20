@@ -3,6 +3,9 @@
 #
 # Usage:
 #   bash bin/mefmri_import_raw.sh <RawDicomDir> <SubjectDir> [ConfigFile] [--session N] [--dry-run]
+#
+# This file is a study-facing template. Update the protocol name, expected
+# counts, and regex rules to match your scanner export naming.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEDIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
