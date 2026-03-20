@@ -6,15 +6,6 @@ This repository contains a modular, config-driven multi-echo fMRI preprocessing 
 
 The main pipeline config is `config/mefmri_wrapper_config.sh`.
 
-Current default behavior:
-
-- CHARM anatomical masking is enabled by default (`CHARM_BRAIN_MASK_MODE="charm"`)
-- Cortical ribbon masking is used by default in volume-to-surface mapping (`VOL2SURF_USE_CORTICAL_RIBBON_MASK=1`)
-- tedana modern mode is the default (`TEDANA_COMPAT_MODE="modern"`)
-- tedana PCA selection defaults to retained variance fraction (`MEPCA="0.95"`)
-- NSI-based reclassification is the default (`MEICA_CLASSIFIER_MODE="nsi"`)
-- External NSI CLI defaults to the bundled local fork at `lib/pfm-nsi`
-
 ## Setup
 
 Before first run on a new machine:
