@@ -13,7 +13,7 @@ Before first run on a new machine:
 1. Clone the repository and initialize submodules:
 
 ```bash
-git clone <your-repo-url> pfm-mefmri
+git clone https://github.com/cjl2007/pfm-mefmri.git
 cd pfm-mefmri
 git submodule update --init --recursive
 ```
