@@ -7,9 +7,6 @@ Pipeline root:
 Main entrypoint:
 - `bin/mefmri_pipeline.sh`
 
-Container wrapper (optional):
-- `bin/mefmri_pipeline_container.sh`
-
 
 1) Required Core Software (default full pipeline)
 -------------------------------------------------
@@ -123,12 +120,6 @@ Functional modules:
 - `modules/mefmri_func_pfm.sh`:
   - Python (`python3`) + Workbench
   - For `PFM_STRATEGY=infomap`: `infomap` binary (or MATLAB fallback, see optional section)
-
-Container execution:
-- `bin/mefmri_pipeline_container.sh` requires one of:
-  - `docker` (when `--engine docker`)
-  - `apptainer` (when `--engine apptainer`)
-
 
 3) Optional Dependencies
 ------------------------

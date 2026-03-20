@@ -55,39 +55,26 @@ Example:
 bash bin/mefmri_pipeline.sh /path/to/study/ME06
 ```
 
-## Containerized Running
+## Local Setup
 
-Container launch is optional and does not change the default host-based run path.
+This release is organized around a native local install rather than a bundled container workflow.
 
-```bash
-bash bin/mefmri_pipeline_container.sh \
-  --engine docker \
-  --image mefmri-pipeline:runtime \
-  --fs-license /path/to/license.txt \
-  /path/to/study/ME06 \
-  /path/to/config/mefmri_wrapper_config_container.sh
-```
+Recommended setup:
 
-For HPC clusters, use `--engine apptainer` with a `.sif` image.
-
-See `docker/README.md` for build and deployment details.
-
-Quick build:
-
-```bash
-bash bin/build_container_image.sh
-```
+1. Install the software listed in `SOFTWARE_DEPENDENCIES.txt`.
+2. Ensure FSL, FreeSurfer, Workbench, GNU Parallel, and Python are available on `PATH`.
+3. Configure tedana through `config/mefmri_wrapper_config.sh` or `config/mefmri_wrapper_config_release.sh`.
+4. Set `FS_LICENSE` or `FS_LICENSE_FILE` before running the pipeline.
 
 ## FreeSurfer License
 
 Set either `FS_LICENSE` or `FS_LICENSE_FILE` to a readable `license.txt` path.
 
 - `anat_hcp` now performs a fail-fast license preflight.
-- In container mode, the wrapper can mount the license with `--fs-license`.
 
 ## Tool Path Assumptions (FSL/Workbench)
 
-The modules call commands like `fslmaths` and `wb_command` by name. This is fine as long as environment setup exposes those binaries on `PATH` (typically via `SetUpHCPPipeline.sh`). In containers, include these toolchains in the image and ensure their paths are exported.
+The modules call commands like `fslmaths` and `wb_command` by name. This is fine as long as environment setup exposes those binaries on `PATH` (typically via `SetUpHCPPipeline.sh`).
 
 ## Provenance
 
