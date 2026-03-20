@@ -1,0 +1,183 @@
+ME-fMRI Pipeline Software Dependencies
+=====================================
+
+Pipeline root:
+- This repository root (resolved at runtime as `MEDIR` by `bin/mefmri_pipeline.sh`).
+
+Main entrypoint:
+- `bin/mefmri_pipeline.sh`
+
+Container wrapper (optional):
+- `bin/mefmri_pipeline_container.sh`
+
+
+1) Required Core Software (default full pipeline)
+-------------------------------------------------
+
+A. Bash + required shell utilities
+- `bash`
+- `awk`
+- `sed`
+
+B. HCP Pipelines
+- Local copy is bundled in this repo at:
+  - `HCPpipelines-master/`
+- Environment setup script expected by wrapper:
+  - `HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh`
+
+C. FSL (required across functional pipeline)
+Required commands used by modules:
+- `fslmaths`
+- `fslmerge`
+- `flirt`
+- `topup`
+- `mcflirt`
+- `fslnvols`
+- `fslsplit`
+- `fslroi`
+- `fslval`
+- `convert_xfm`
+- `convertwarp`
+- `applywarp`
+- `invwarp`
+- `slicetimer`
+- `bet`
+
+D. FreeSurfer (required in anat/coreg/fieldmaps)
+Required commands:
+- `mri_binarize`
+- `mri_convert`
+- `mri_surf2surf`
+- `bbregister`
+- `tkregister2`
+
+Notes:
+- `bin/mefmri_pipeline.sh` auto-creates a `tkregister` compatibility shim when `tkregister` is missing but `tkregister2` is present.
+
+E. Connectome Workbench (required)
+Required command:
+- `wb_command`
+
+F. GNU Parallel (required)
+Required command:
+- `parallel`
+
+G. Python 3 (required)
+Required command:
+- `python3`
+
+Required Python packages used by internal modules:
+- `numpy`
+- `nibabel`
+- `pandas`
+- `scipy`
+- `matplotlib`
+
+H. tedana stack (required for default MEICA stage)
+Required commands:
+- `tedana`
+- `ica_reclassify`
+
+Conda requirement:
+- `conda` is required when `TEDANA_ACTIVATE_MODE` is `conda_activate` or `conda_run`.
+- If `TEDANA_ACTIVATE_MODE=direct`, `conda` is not required.
+
+
+2) Required by Specific Modules / Modes
+---------------------------------------
+
+Anatomical modules:
+- `modules/mefmri_anat_hcp.sh`:
+  - HCP Pipelines stack
+  - FreeSurfer + FSL + Workbench via HCP scripts
+
+- `modules/mefmri_anat_charm.sh`:
+  - SimNIBS CHARM binary (set `CHARM_BIN` in config if not on PATH)
+  - FSL (`fslmaths`)
+  - Python (`python3`)
+
+Functional modules:
+- `modules/mefmri_func_fieldmaps.sh`:
+  - FSL, FreeSurfer, Python, GNU Parallel
+  - Workbench only when `USE_WB_SMOOTHING=1`
+
+- `modules/mefmri_func_coreg.sh`:
+  - FSL, FreeSurfer, Python, GNU Parallel
+  - ANTs only if `APPLY_N4_BIAS=1`
+
+- `modules/mefmri_func_headmotion.sh`:
+  - FSL, GNU Parallel
+  - ANTs only if `APPLY_N4_BIAS=1`
+
+- `modules/mefmri_func_meica.sh`:
+  - tedana + ica_reclassify
+  - conda (if `TEDANA_ACTIVATE_MODE` is `conda_activate` or `conda_run`)
+  - FSL, Workbench (if `MEICA_QC_CIFTI_ENABLE=1`), Python, GNU Parallel
+
+- `modules/mefmri_func_mgtr.sh`:
+  - Python (`python3`) with `numpy` + `nibabel`
+
+- `modules/mefmri_func_vol2surf.sh`:
+  - FSL + Workbench
+
+- `modules/mefmri_func_pfm.sh`:
+  - Python (`python3`) + Workbench
+  - For `PFM_STRATEGY=infomap`: `infomap` binary (or MATLAB fallback, see optional section)
+
+Container execution:
+- `bin/mefmri_pipeline_container.sh` requires one of:
+  - `docker` (when `--engine docker`)
+  - `apptainer` (when `--engine apptainer`)
+
+
+3) Optional Dependencies
+------------------------
+
+A. ANTs (conditional)
+Only needed if:
+- `APPLY_N4_BIAS=1`
+
+Required command:
+- `N4BiasFieldCorrection`
+
+B. External PFM NSI CLI (optional)
+Only needed if:
+- `NSI_USE_EXTERNAL_CLI=1`
+
+Config requirement:
+- set `NSI_EXTERNAL_ROOT` to your local NSI repository path (default bundled location: `lib/pfm-nsi`)
+
+C. InfoMap binary (required when `PFM_STRATEGY=infomap` and `PFM_INFOMAP_USE_MATLAB=0`)
+Required command:
+- `infomap`
+
+If infomap is not on PATH, set:
+- `PFM_INFOMAP_BINARY=/full/path/to/infomap`
+
+D. MATLAB (optional infomap fallback only)
+Only needed if:
+- `PFM_STRATEGY=infomap`
+- and `PFM_INFOMAP_USE_MATLAB=1`
+
+
+4) Quick Binary Checks (manual)
+-------------------------------
+
+Core/default pipeline check:
+
+for c in \
+  bash awk sed \
+  fslmaths fslmerge flirt topup mcflirt fslnvols fslsplit fslroi fslval \
+  convert_xfm convertwarp applywarp invwarp slicetimer bet \
+  mri_binarize mri_convert mri_surf2surf bbregister tkregister2 \
+  wb_command parallel python3 tedana ica_reclassify; do
+  command -v "$c" >/dev/null 2>&1 || echo "MISSING: $c"
+done
+
+If using conda-managed tedana execution (`TEDANA_ACTIVATE_MODE=conda_*`):
+
+command -v conda >/dev/null 2>&1 || echo "MISSING: conda"
+
+If using ANTs bias correction (`APPLY_N4_BIAS=1`):
+
+command -v N4BiasFieldCorrection >/dev/null 2>&1 || echo "MISSING: N4BiasFieldCorrection"

@@ -1,0 +1,70 @@
+ARG BASE_IMAGE=nipreps/fmriprep:24.1.1
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-lc"]
+
+USER root
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install command-line dependencies used by this pipeline that may not be
+# present in all base images.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      bc \
+      gawk \
+      parallel \
+      python3-pip \
+      rsync \
+      && \
+    rm -rf /var/lib/apt/lists/*
+
+# fMRIPrep base images do not always ship every FSL utility (e.g., slicetimer).
+# Add missing slicetimer from the official FSL conda channel when needed.
+RUN if ! command -v slicetimer >/dev/null 2>&1; then \
+      micromamba install -y -n fmriprep \
+        -c https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/public \
+        --override-channels \
+        fsl-slicetimer; \
+    fi
+
+# Ensure tedana and Python deps are present in PATH without conda activation.
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir \
+      tedana \
+      matplotlib \
+      nibabel \
+      numpy \
+      pandas \
+      scipy
+
+# Some FreeSurfer distributions expose tkregister2 as tkregister2_cmdl.
+# HCP FreeSurferPipeline.sh also calls tkregister explicitly.
+RUN if [ ! -x /opt/freesurfer/bin/tkregister2 ] && [ -x /opt/freesurfer/bin/tkregister2_cmdl ]; then \
+      ln -s /opt/freesurfer/bin/tkregister2_cmdl /opt/freesurfer/bin/tkregister2; \
+    fi && \
+    if [ ! -x /opt/freesurfer/bin/tkregister ] && [ -x /opt/freesurfer/bin/tkregister2 ]; then \
+      ln -s /opt/freesurfer/bin/tkregister2 /opt/freesurfer/bin/tkregister; \
+    fi
+
+WORKDIR /opt/mefmri
+COPY . /opt/mefmri
+
+# Runtime defaults expected by wrapper + HCP setup script.
+ENV MEDIR=/opt/mefmri \
+    HCPPIPEDIR=/opt/mefmri/HCPpipelines-master \
+    TEDANA_ACTIVATE_MODE=direct
+
+# Best-effort PATH additions for common install locations.
+ENV PATH=/opt/workbench/bin_linux64:/opt/conda/envs/fmriprep/bin:/usr/lib/fsl/6.0:/usr/lib/fsl/6.0/bin:${PATH}
+
+# Quick preflight to fail image build early if core tools are missing.
+RUN set -euo pipefail; \
+    for c in python3 fslmaths fslmerge flirt topup mcflirt fslnvols fslsplit fslroi fslval \
+             convert_xfm convertwarp applywarp invwarp slicetimer \
+             mri_binarize mri_convert mri_surf2surf bbregister tkregister tkregister2 \
+             wb_command parallel tedana ica_reclassify; do \
+      command -v "$c" >/dev/null 2>&1 || { echo "Missing required command in image: $c" >&2; exit 2; }; \
+    done
+
+ENTRYPOINT ["/opt/mefmri/bin/mefmri_pipeline.sh"]

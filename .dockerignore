@@ -1,0 +1,5 @@
+.git
+.gitignore
+codex_progress
+__pycache__
+*.pyc

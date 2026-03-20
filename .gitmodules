@@ -1,0 +1,3 @@
+[submodule "lib/pfm-nsi"]
+	path = lib/pfm-nsi
+	url = https://github.com/cjl2007/pfm-nsi.git

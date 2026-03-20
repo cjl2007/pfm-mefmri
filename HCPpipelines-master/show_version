@@ -1,0 +1,149 @@
+#!/bin/bash
+
+#This script exists for the following reasons:
+#1) We can ask a user to run it so we can get a good idea what version of the pipelines they have, including indicating whether it is dev, rc, or release
+#2) Pipelines can run it with --short to get a simple version string with the same indicators
+#3) To allow containers built with a release candidate to behave more like a final release, to avoid rebuilding again after processing, script logic can hide the "RC" status
+#4) Running a script can gather more information (and do sanity checking) compared to a simple text file
+#
+#Design:
+#Users may download the repo as a zip, or via git clone, so the main behavior needs to be implemented based on files in the source tree
+#To reduce the chance for typos, the formulaic -rc and Post- pre/suffixes (and other automatic things) are added by the script, so the version file contains only the main version string, like "v4.3.0".
+#To reduce the chance of accidental merge/cherry-pick/forgot-to-delete causing a commit to improperly claim rc or release status, everything that controls rc or release status display is checked to contain the exact same string as the main version text, otherwise an error is thrown
+#
+#Usage:
+#Run it with no arguments to get extended version information
+#Run it with --short to get just the version string
+#
+#Devops:
+#When starting an rc-dev branch, edit global/scripts/versioning/base.txt to the version that will be the release, and copy it to candidate.txt
+#When the release is final, move candidate.txt to release.txt and commit/tag, and on the dev branch, change base.txt to the newly released version (to update the "Post-" version)
+#To get an rc to use a release version string format, set HCPPIPE_HIDE_RC to the same as the contents of base.txt
+
+set -eu
+
+scriptdir=$(cd "$(dirname -- "$0")" && pwd)
+
+if [[ "${HCPPIPEDIR:-}" != "" ]]
+then
+    setpipedir=$(cd "$HCPPIPEDIR" && pwd)
+    if [[ "$scriptdir" != "$setpipedir" ]]
+    then
+        #we haven't sourced anything, don't use logging functions
+        echo "warning: HCPPIPEDIR is set to $HCPPIPEDIR, which doesn't seem to be the location of this show_version script" 1>&2
+    fi
+fi
+
+#ignore HCPPIPEDIR from environment, report on *this* pipelines directory
+HCPPIPEDIR="$scriptdir"
+
+verdir="$HCPPIPEDIR"/global/scripts/versioning
+
+base=$(cat "$verdir"/base.txt)
+
+candidate=0
+release=0
+
+if [[ -f "$verdir"/release.txt ]]
+then
+    relstring=$(cat "$verdir"/release.txt)
+    if [[ "$relstring" != "$base" ]]
+    then
+        echo "ERROR: release.txt exists, but contents do not match base version" 1>&2
+        exit 1
+    fi
+    release=1
+fi
+
+if [[ -f "$verdir"/candidate.txt ]]
+then
+    canstring=$(cat "$verdir"/candidate.txt)
+    if [[ "$canstring" != "$base" ]]
+    then
+        echo "ERROR: candidate.txt exists, but contents do not match base version" 1>&2
+        exit 1
+    fi
+    candidate=1
+fi
+
+if ((release && candidate))
+then
+    echo "ERROR: both release.txt and candidate.txt exist" 1>&2
+    exit 1
+fi
+
+if [[ "${HCPPIPE_HIDE_RC:-}" != "" ]]
+then
+    if [[ "$HCPPIPE_HIDE_RC" != "$base" ]]
+    then
+        echo "ERROR: HCPPIPE_HIDE_RC is set, but contents do not match base version" 1>&2
+        exit 1
+    fi
+    if ((candidate))
+    then
+        candidate=0
+        release=1
+    fi
+fi
+
+if ((release))
+then
+    verstring="$base"
+else
+    if ((candidate))
+    then
+        verstring="$base"-rc
+    else
+        verstring=Post-"$base"
+    fi
+fi
+
+commit=''
+#plot twist: mac's which has -s for silent, but debian's doesn't
+if [[ -d "$HCPPIPEDIR"/.git ]] && which git &> /dev/null
+then
+    modified=no
+    #ignore modification of things in Examples?
+    if ! (cd "$HCPPIPEDIR"; git diff-index --quiet HEAD -- ':!/Examples/')
+    then
+        modified=YES
+        verstring="$verstring"-MOD
+    fi
+    commit=$(cd "$HCPPIPEDIR"; git rev-parse HEAD)
+    shortcommit=$(cd "$HCPPIPEDIR"; git rev-parse --short HEAD)
+    if ((! release))
+    then
+        verstring="$verstring"-"$shortcommit"
+    fi
+fi
+
+short=0
+while (($# > 0))
+do
+    case $1 in
+        (--short)
+            short=1
+            ;;
+    esac
+    shift
+done
+
+if ((short))
+then
+    echo "$verstring"
+else
+    #use old formatting, I guess?
+    echo "========================================"
+    echo "  DIRECTORY: $HCPPIPEDIR"
+    echo "    PRODUCT: HCP Pipeline Scripts"
+    echo "    VERSION: $verstring"
+    if [[ "$commit" == "" ]]
+    then
+        echo "     COMMIT: unknown"
+    else
+        echo "     COMMIT: $commit"
+        echo "   MODIFIED: $modified"
+    fi
+    echo "========================================"
+fi
+
