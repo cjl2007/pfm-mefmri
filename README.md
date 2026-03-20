@@ -45,7 +45,7 @@ So yes, users can override the bundled release version with their own newer loca
 
 ## Expected Subject Layout
 
-The pipeline expects each subject directory to look like this before preprocessing:
+Before preprocessing, each subject directory should be organized as follows:
 
 ```text
 ME001/
@@ -53,30 +53,67 @@ ME001/
     unprocessed/
       T1w/
         T1w_1.nii.gz
+        T1w_1.json
+        T1w_2.nii.gz
+        T1w_2.json
+        ...
       T2w/
         T2w_1.nii.gz
+        T2w_1.json
+        T2w_2.nii.gz
+        T2w_2.json
+        ...
   func/
     unprocessed/
       rest/
         session_1/
           run_1/
             Rest_S1_R1_E1.nii.gz
+            Rest_S1_R1_E1.json
             Rest_S1_R1_E2.nii.gz
+            Rest_S1_R1_E2.json
             Rest_S1_R1_E3.nii.gz
+            Rest_S1_R1_E3.json
             Rest_S1_R1_E4.nii.gz
+            Rest_S1_R1_E4.json
           run_2/
             Rest_S1_R2_E1.nii.gz
+            Rest_S1_R2_E1.json
             Rest_S1_R2_E2.nii.gz
+            Rest_S1_R2_E2.json
             Rest_S1_R2_E3.nii.gz
+            Rest_S1_R2_E3.json
             Rest_S1_R2_E4.nii.gz
+            Rest_S1_R2_E4.json
       field_maps/
         AP_S1_R1.nii.gz
+        AP_S1_R1.json
         AP_S1_R2.nii.gz
+        AP_S1_R2.json
         PA_S1_R1.nii.gz
+        PA_S1_R1.json
         PA_S1_R2.nii.gz
+        PA_S1_R2.json
 ```
+## Notes
 
-The pipeline writes preprocessing outputs under the same subject directory, including run metadata and logs in `func/qa/`.
+At least one T1-weighted image is required: T1w_1.nii.gz with its matching T1w_1.json.
+
+Additional T1w repeats are supported (T1w_2, T1w_3, etc.) and will be averaged before downstream structural processing and FreeSurfer.
+
+T2-weighted images are optional. If provided, each image should also have a matching JSON sidecar.
+
+Additional T2w repeats are supported and will be averaged in the same way.
+
+Functional runs should be organized by session and run, with one NIfTI file and one matching JSON sidecar per echo.
+
+The number of echoes is flexible. The example above shows 4 echoes, but runs may contain 3, 5, or however many echoes are present in the acquisition.
+
+Field maps should be placed in func/unprocessed/field_maps/, with a matching JSON sidecar for each NIfTI file.
+
+AP and PA are shown for illustrative purposes only. Other phase-encoding direction pairs (for example, RL / LR) are also acceptable, provided they are named consistently and specified correctly in the pipeline configuration.
+
+In general, every input NIfTI file is expected to have a corresponding .json sidecar containing the required acquisition metadata.
 
 ## Importers
 
