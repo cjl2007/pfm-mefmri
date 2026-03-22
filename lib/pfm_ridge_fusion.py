@@ -55,6 +55,47 @@ def parse_structures(axis, structures_csv: str) -> np.ndarray:
     return keep
 
 
+def inject_subcortical_spatial_priors(
+    axis,
+    spatial_full: np.ndarray,
+    subcort_priors_nii: str,
+    n_net: int,
+) -> None:
+    if not subcort_priors_nii:
+        return
+    vol = nib.load(subcort_priors_nii)
+    arr = vol.get_fdata(dtype=np.float32)
+    if arr.ndim == 3:
+        arr = arr[..., np.newaxis]
+    if arr.ndim != 4:
+        raise ValueError(f"Expected 3D/4D NIfTI for subcortical priors: {subcort_priors_nii}, got {arr.shape}")
+    if arr.shape[3] < n_net:
+        raise ValueError(
+            f"Subcortical priors maps ({arr.shape[3]}) must be >= network count ({n_net}): {subcort_priors_nii}"
+        )
+
+    used = 0
+    for name, slc, bm in axis.iter_structures():
+        if name in ("CIFTI_STRUCTURE_CORTEX_LEFT", "CIFTI_STRUCTURE_CORTEX_RIGHT"):
+            continue
+        vox = np.asarray(bm.voxel, dtype=np.int64)
+        if vox.size == 0:
+            continue
+        if (
+            (vox[:, 0] < 0).any()
+            or (vox[:, 1] < 0).any()
+            or (vox[:, 2] < 0).any()
+            or (vox[:, 0] >= arr.shape[0]).any()
+            or (vox[:, 1] >= arr.shape[1]).any()
+            or (vox[:, 2] >= arr.shape[2]).any()
+        ):
+            raise ValueError(f"Subcortical voxel indices are out of bounds for priors volume: {subcort_priors_nii}")
+        spatial_full[slc, :] = arr[vox[:, 0], vox[:, 1], vox[:, 2], :n_net]
+        used += int(vox.shape[0])
+
+    print(f"[ridge] loaded ACPC subcortical priors: {subcort_priors_nii} (rows={used})")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Python ridge-fusion PFM")
     ap.add_argument("--in-cifti", required=True)
@@ -67,6 +108,7 @@ def main() -> int:
     ap.add_argument("--lambda", dest="lam", type=float, default=10.0)
     ap.add_argument("--local-exclusion-mm", type=float, default=10.0)
     ap.add_argument("--brain-structures-csv", default="")
+    ap.add_argument("--subcort-priors-nii", default="", help="ACPC-space 4D subcortical priors NIfTI")
     ap.add_argument("--chunk", type=int, default=256)
     ap.add_argument("--left-surf", required=True)
     ap.add_argument("--right-surf", required=True)
@@ -121,6 +163,7 @@ def main() -> int:
     # Spatial priors full
     spatial_full = np.full((n_gray, n_net), 0.5, dtype=np.float32)
     spatial_full[cortex_idx, :] = pri_spatial
+    inject_subcortical_spatial_priors(axis, spatial_full, args.subcort_priors_nii, n_net)
     spatial_full = np.maximum(spatial_full, 1e-6)
 
     label_idx = np.zeros((n_gray,), dtype=np.int32)

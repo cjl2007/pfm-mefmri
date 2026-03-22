@@ -7,19 +7,11 @@
 # =============================================================================
 # 1) Required Paths and Environment Settings
 # =============================================================================
-# TODO(user): review and set machine-specific values in this section before
-# first run on a new system. At minimum, confirm:
-# - CHARM_BIN (if charm is not on PATH)
-# - TEDANA_ENV / TEDANA_ACTIVATE_MODE
-# - NSI_EXTERNAL_ROOT (only if NSI_USE_EXTERNAL_CLI=1)
-# - FS_LICENSE / FS_LICENSE_FILE in your shell environment
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEDIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EnvironmentScript="$MEDIR/HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh"
 
-# TODO(user): set CHARM_BIN to your local SimNIBS CHARM binary path if "charm"
-# is not already on PATH. Leave empty to use PATH lookup in modules.
-CHARM_BIN=""
+CHARM_BIN="/home/charleslynch/SimNIBS-4.5/bin/charm"
 
 # PFM network priors:
 # - cortical prior weights / labels in MATLAB format
@@ -98,11 +90,11 @@ VOL2SURF_CIFTI_STAMP=""               # Optional non-canonical suffix for experi
 # =============================================================================
 # Modern defaults:
 # - tedana 0.26.00 path (via environment)
-# - tedana PCA set by retained variance fraction
+# - Kundu PCA selection
 TEDANA_ENV="mefmri_env" 			  # name of the conda environment used for tedana
 TEDANA_ACTIVATE_MODE="conda_activate" # conda_activate|conda_run|direct
 TEDANA_COMPAT_MODE="modern"           # recommended default
-MEPCA="0.95"                          # retain 95% variance before ICA
+MEPCA="350"                           # default kundu
 
 MaxIterations=500
 MaxRestarts=5
@@ -208,7 +200,6 @@ NSI_USABILITY_MODEL=1
 NSI_RELIABILITY_MODEL=0
 NSI_RELIABILITY_NSI_T=10
 NSI_RELIABILITY_QUERY_T=60
-# Bundled local NSI fork.
 NSI_EXTERNAL_ROOT="$MEDIR/lib/pfm-nsi"
 NSI_EXTERNAL_ENTRY="pfm_nsi.cli"
 NSI_EXTERNAL_OUT_SUBDIR=""              # empty => write directly to func/qa/NSI
@@ -247,6 +238,7 @@ PFM_DISTANCE_MATRIX=""                  # empty => <SubjectDir>/anat/T1w/fsavera
 PFM_DISTANCE_VARIANT_CHUNK_ROWS=128
 PFM_DISTANCE_BUILD_IF_MISSING=1
 PFM_OUTDIR=""                           # empty => <SubjectDir>/func/<FUNC_DIRNAME>/PFM
+PFM_PREP_DIR=""                         # empty => <PFM_OUTDIR>/prep (PFM-only intermediates); optional override to colocate prep elsewhere
 
 # External PFM resource roots
 PFM_RESOURCES_ROOT="$MEDIR/res0urces"
@@ -257,7 +249,7 @@ PFM_INFOMAP_WRAPPER="$PFM_RESOURCES_ROOT/PFM-InfoMap-Tmp/pfm_wrapper.m"
 PFM_RF_ENABLE=1
 PFM_RF_OUTFILE="RidgeFusion_VTX"
 PFM_RF_FC_WEIGHT=1.0
-PFM_RF_SPATIAL_WEIGHT=0.25
+PFM_RF_SPATIAL_WEIGHT=0.1
 PFM_RF_LAMBDA=10
 PFM_RF_LOCAL_EXCLUSION_MM=10
 PFM_RF_SUBCORT_REGRESS_ENABLE=1
@@ -268,12 +260,27 @@ PFM_RF_SMOOTHING_KERNEL=1.7             # mm; <=0 disables smoothing step
 # Reserved knobs for downstream areal parcellation and prior controls
 PFM_AREAL_ENABLE=1
 PFM_AREAL_OUTFILE="RidgeFusion_VTX+ArealParcellation"
-PFM_AREAL_MIN_SIZE=10
+PFM_AREAL_MIN_SIZE=30
 PFM_AP_METHOD="kmeans"
+PFM_AP_KMEANS_DIM_FC_ALL=64
 PFM_AP_KMAX_CAP=8
 PFM_AP_KMIN_PER_PATCH=1
+PFM_AP_K_SEARCH_HALFWIN=1
+PFM_AP_K_FIXED=0
+PFM_AP_KMEANS_REPLICATES=3
+PFM_AP_MIN_PARCEL_AREA_MM2=30
+PFM_AP_MIN_PARCEL_SIZE=30
 PFM_AP_DIFFUSE_ITERS=6
 PFM_AP_LAMBDA_SPATIAL=8
+PFM_AP_WTA_SMOOTH_ITERS=1
+PFM_AP_MIN_WTA_COMP_SIZE=20
+PFM_AP_MAX_WTA_PRUNE_PASS=2
+PFM_AP_MERGE_THRESH=0.08
+PFM_AP_FC_MIN_DISTANCE_MM=30
+PFM_AP_FC_REF_MAX=10000
+PFM_AP_FC_REF_PCA_DIM=0
+PFM_AP_REF_SEED=1
+PFM_AP_VERBOSE=1
 PFM_PRIORS_MAT="$PFM_NETWORK_PRIORS_CORTICAL_MAT"
 PFM_SUBCORT_PRIORS_NII="$PFM_NETWORK_PRIORS_SUBCORTICAL_NII"
 PFM_NEIGHBORS_MAT="$PFM_RESOURCES_ROOT/Cifti_surf_neighbors_LR_normalwall.mat"

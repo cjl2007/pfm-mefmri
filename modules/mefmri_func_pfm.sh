@@ -15,6 +15,7 @@ PFM_PYTHON="${PFM_PYTHON:-python3}"
 PFM_RESOURCES_ROOT="${PFM_RESOURCES_ROOT:-${MEDIR}/res0urces}"
 PFM_INFOMAP_WRAPPER="${PFM_INFOMAP_WRAPPER:-${PFM_RESOURCES_ROOT}/PFM-InfoMap-Tmp/pfm_wrapper.m}"
 PFM_OUTDIR="${PFM_OUTDIR:-${SubjectDir}/func/${FuncDirName}/PFM}"
+PFM_PREP_DIR="${PFM_PREP_DIR:-}"
 PFM_INPUT_CIFTI="${PFM_INPUT_CIFTI:-}"
 PFM_INPUT_TAG="${PFM_INPUT_TAG:-${CONCAT_INPUT_TAG:-OCME+MEICA+MGTR}}"
 PFM_CONCAT_OUT_SUBDIR="${PFM_CONCAT_OUT_SUBDIR:-${CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}}"
@@ -35,11 +36,33 @@ PFM_RF_BRAIN_STRUCTURES="${PFM_RF_BRAIN_STRUCTURES:-}"
 PFM_RF_BRAIN_STRUCTURES_CSV="${PFM_RF_BRAIN_STRUCTURES_CSV:-CORTEX_LEFT,CEREBELLUM_LEFT,ACCUMBENS_LEFT,CAUDATE_LEFT,PUTAMEN_LEFT,THALAMUS_LEFT,HIPPOCAMPUS_LEFT,AMYGDALA_LEFT,CORTEX_RIGHT,CEREBELLUM_RIGHT,ACCUMBENS_RIGHT,CAUDATE_RIGHT,PUTAMEN_RIGHT,THALAMUS_RIGHT,HIPPOCAMPUS_RIGHT,AMYGDALA_RIGHT}"
 PFM_RF_SMOOTHING_KERNEL="${PFM_RF_SMOOTHING_KERNEL:-0}"
 PFM_PRIORS_MAT="${PFM_PRIORS_MAT:-${NETWORK_PRIORS_MAT:-}}"
+PFM_SUBCORT_PRIORS_NII="${PFM_SUBCORT_PRIORS_NII:-}"
+PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-${FUNC_XFMS_DIRNAME:-rest}}"
 
 PFM_AREAL_ENABLE="${PFM_AREAL_ENABLE:-0}"
 PFM_AREAL_OUTFILE="${PFM_AREAL_OUTFILE:-RidgeFusion_VTX+ArealParcellation}"
-PFM_AREAL_MIN_SIZE="${PFM_AREAL_MIN_SIZE:-10}"
+PFM_AREAL_MIN_SIZE="${PFM_AREAL_MIN_SIZE:-30}"
 PFM_NEIGHBORS_MAT="${PFM_NEIGHBORS_MAT:-${PFM_RESOURCES_ROOT}/Cifti_surf_neighbors_LR_normalwall.mat}"
+PFM_AP_METHOD="${PFM_AP_METHOD:-kmeans}"
+PFM_AP_KMEANS_DIM_FC_ALL="${PFM_AP_KMEANS_DIM_FC_ALL:-64}"
+PFM_AP_KMAX_CAP="${PFM_AP_KMAX_CAP:-8}"
+PFM_AP_KMIN_PER_PATCH="${PFM_AP_KMIN_PER_PATCH:-1}"
+PFM_AP_K_SEARCH_HALFWIN="${PFM_AP_K_SEARCH_HALFWIN:-1}"
+PFM_AP_K_FIXED="${PFM_AP_K_FIXED:-0}"
+PFM_AP_KMEANS_REPLICATES="${PFM_AP_KMEANS_REPLICATES:-3}"
+PFM_AP_MIN_PARCEL_AREA_MM2="${PFM_AP_MIN_PARCEL_AREA_MM2:-30}"
+PFM_AP_MIN_PARCEL_SIZE="${PFM_AP_MIN_PARCEL_SIZE:-${PFM_AREAL_MIN_SIZE}}"
+PFM_AP_DIFFUSE_ITERS="${PFM_AP_DIFFUSE_ITERS:-6}"
+PFM_AP_LAMBDA_SPATIAL="${PFM_AP_LAMBDA_SPATIAL:-8}"
+PFM_AP_WTA_SMOOTH_ITERS="${PFM_AP_WTA_SMOOTH_ITERS:-1}"
+PFM_AP_MIN_WTA_COMP_SIZE="${PFM_AP_MIN_WTA_COMP_SIZE:-20}"
+PFM_AP_MAX_WTA_PRUNE_PASS="${PFM_AP_MAX_WTA_PRUNE_PASS:-2}"
+PFM_AP_MERGE_THRESH="${PFM_AP_MERGE_THRESH:-0.08}"
+PFM_AP_FC_MIN_DISTANCE_MM="${PFM_AP_FC_MIN_DISTANCE_MM:-30}"
+PFM_AP_FC_REF_MAX="${PFM_AP_FC_REF_MAX:-10000}"
+PFM_AP_FC_REF_PCA_DIM="${PFM_AP_FC_REF_PCA_DIM:-0}"
+PFM_AP_REF_SEED="${PFM_AP_REF_SEED:-1}"
+PFM_AP_VERBOSE="${PFM_AP_VERBOSE:-1}"
 
 PFM_INFOMAP_MATLAB="${PFM_INFOMAP_MATLAB:-matlab}"
 PFM_INFOMAP_DISTANCE_MATRIX="${PFM_INFOMAP_DISTANCE_MATRIX:-${SubjectDir}/anat/T1w/fsaverage_LR32k/DistanceMatrix.mat}"
@@ -78,8 +101,13 @@ echo "[pfm] output dir=${PFM_OUTDIR}"
 command -v wb_command >/dev/null 2>&1 || { echo "ERROR: wb_command not found"; exit 2; }
 
 mkdir -p "$PFM_OUTDIR"
-PREP_DIR="${PFM_OUTDIR}/prep"
+if [[ -z "$PFM_PREP_DIR" ]]; then
+  PREP_DIR="${PFM_OUTDIR}/prep"
+else
+  PREP_DIR="$PFM_PREP_DIR"
+fi
 mkdir -p "$PREP_DIR"
+echo "[pfm] prep dir=${PREP_DIR} (PFM-only intermediates)"
 
 if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
   if [[ "${PFM_RF_SUBCORT_REGRESS_ENABLE}" == "1" ]]; then
@@ -117,6 +145,18 @@ if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
   [[ -f "$PFM_DISTANCE_MATRIX" ]] || { echo "ERROR: distance matrix not found: $PFM_DISTANCE_MATRIX"; exit 2; }
   [[ -f "$PFM_PRIORS_MAT" ]] || { echo "ERROR: missing PFM cortical network priors mat: $PFM_PRIORS_MAT"; exit 2; }
 
+  PFM_SUBCORT_PRIORS_ACPC=""
+  if [[ -n "$PFM_SUBCORT_PRIORS_NII" ]]; then
+    [[ -f "$PFM_SUBCORT_PRIORS_NII" ]] || { echo "ERROR: missing PFM subcortical priors NIfTI: $PFM_SUBCORT_PRIORS_NII"; exit 2; }
+    XFM_STANDARD2ACPC="${SubjectDir}/anat/MNINonLinear/xfms/standard2acpc_dc.nii.gz"
+    ACPC_REF_FUNC="${SubjectDir}/func/xfms/${PFM_FUNC_XFMS_DIRNAME}/T1w_acpc_brain_func.nii.gz"
+    [[ -f "$XFM_STANDARD2ACPC" ]] || { echo "ERROR: missing standard2acpc warp: $XFM_STANDARD2ACPC"; exit 2; }
+    [[ -f "$ACPC_REF_FUNC" ]] || { echo "ERROR: missing ACPC functional reference volume: $ACPC_REF_FUNC"; exit 2; }
+    PFM_SUBCORT_PRIORS_ACPC="${PREP_DIR}/SubcorticalPriors_acpc.nii.gz"
+    echo "[pfm] warping subcortical priors MNI->ACPC -> ${PFM_SUBCORT_PRIORS_ACPC}"
+    applywarp -i "$PFM_SUBCORT_PRIORS_NII" -o "$PFM_SUBCORT_PRIORS_ACPC" -r "$ACPC_REF_FUNC" -w "$XFM_STANDARD2ACPC"
+  fi
+
   echo "[pfm] running Python ridge fusion"
   "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_fusion.py" \
     --in-cifti "$PFM_INPUT_CIFTI" \
@@ -129,6 +169,7 @@ if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
     --lambda "$PFM_RF_LAMBDA" \
     --local-exclusion-mm "$PFM_RF_LOCAL_EXCLUSION_MM" \
     --brain-structures-csv "$PFM_RF_BRAIN_STRUCTURES_CSV" \
+    --subcort-priors-nii "$PFM_SUBCORT_PRIORS_ACPC" \
     --left-surf "$L_MID" \
     --right-surf "$R_MID"
 
@@ -138,9 +179,11 @@ if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
       --in-cifti "$PFM_INPUT_CIFTI" \
       --wta-dlabel "${PFM_OUTDIR}/${PFM_RF_OUTFILE}.dlabel.nii" \
       --neighbors-mat "$PFM_NEIGHBORS_MAT" \
+      --distance-npy "$PFM_DISTANCE_MATRIX" \
+      --priors-mat "$PFM_PRIORS_MAT" \
       --outdir "$PFM_OUTDIR" \
       --outfile "$PFM_AREAL_OUTFILE" \
-      --min-size "$PFM_AREAL_MIN_SIZE" \
+      --min-parcel-size "$PFM_AREAL_MIN_SIZE" \
       --left-surf "$L_MID" \
       --right-surf "$R_MID"
   fi
