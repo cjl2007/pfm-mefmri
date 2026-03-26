@@ -46,6 +46,7 @@ class ProtocolConfig:
     min_bytes_fmap: int
     min_bytes_t1w: int
     min_bytes_t2w: int
+    echo_dim4_policy: str
     t1w_regex: str
     t2w_regex: str
     rest_regex: str
@@ -87,6 +88,7 @@ class ProtocolConfig:
             min_bytes_fmap=env_int("IMPORT_MIN_BYTES_FMAP"),
             min_bytes_t1w=env_int("IMPORT_MIN_BYTES_T1W"),
             min_bytes_t2w=env_int("IMPORT_MIN_BYTES_T2W"),
+            echo_dim4_policy=os.environ.get("IMPORT_ECHO_DIM4_POLICY", "abort"),
             t1w_regex=os.environ.get("IMPORT_T1W_REGEX", ""),
             t2w_regex=os.environ.get("IMPORT_T2W_REGEX", ""),
             rest_regex=os.environ.get("IMPORT_REST_REGEX", ""),
@@ -115,6 +117,7 @@ class SeriesRecord:
     filecount_images: Optional[int]
     classification: str = "unclassified"
     classification_reason: str = ""
+    target_n_volumes: Optional[int] = None
 
 
 class Reporter:
@@ -292,7 +295,14 @@ def validate_record_guardrails(record: SeriesRecord, min_bytes: int, expect_vols
     ensure(record.n_volumes == expect_vols, f"{role_name} expected {expect_vols} volume(s), found {record.n_volumes}: {record.nii_path}")
 
 
-def group_multi_echo(records: Sequence[SeriesRecord], expect_echoes: int, expect_vols: int, min_bytes: int, role_name: str) -> List[List[SeriesRecord]]:
+def group_multi_echo(
+    records: Sequence[SeriesRecord],
+    expect_echoes: int,
+    expect_vols: int,
+    min_bytes: int,
+    role_name: str,
+    echo_dim4_policy: str,
+) -> List[List[SeriesRecord]]:
     groups: Dict[int, List[SeriesRecord]] = {}
     for rec in records:
         groups.setdefault(rec.series_number, []).append(rec)
@@ -307,7 +317,24 @@ def group_multi_echo(records: Sequence[SeriesRecord], expect_echoes: int, expect
         ensure(len(descs) == 1, f"{role_name} series {series_number} has inconsistent descriptions: {sorted(descs)}")
         for rec in group_sorted:
             ensure(rec.file_size >= min_bytes, f"{role_name} file too small: {rec.nii_path} ({rec.file_size} bytes < {min_bytes})")
-            ensure(rec.n_volumes == expect_vols, f"{role_name} expected {expect_vols} volume(s), found {rec.n_volumes}: {rec.nii_path}")
+
+        vols = sorted({int(r.n_volumes) for r in group_sorted})
+        if len(vols) > 1:
+            if echo_dim4_policy == "truncate_to_min":
+                min_vol = int(min(vols))
+                for rec in group_sorted:
+                    rec.target_n_volumes = min_vol
+            else:
+                names = ", ".join(f"E{int(r.echo_number or 0)}={int(r.n_volumes)}" for r in group_sorted)
+                raise ImportAbort(
+                    f"{role_name} series {series_number} has mismatched echo dim4/timepoints ({names}). "
+                    "This often indicates incomplete transfer. Re-import from source or re-run with IMPORT_ECHO_DIM4_POLICY=truncate_to_min to force truncation to min timepoints."
+                )
+
+        if expect_vols > 0 and echo_dim4_policy != "truncate_to_min":
+            for rec in group_sorted:
+                ensure(rec.n_volumes == expect_vols, f"{role_name} expected {expect_vols} volume(s), found {rec.n_volumes}: {rec.nii_path}")
+
         sorted_groups.append(group_sorted)
     return sorted(sorted_groups, key=lambda group: (group[0].series_number, group[0].acquisition_time))
 
@@ -318,7 +345,7 @@ def format_group(group: Sequence[SeriesRecord]) -> str:
     filecount = f" dicom_images={first.filecount_images}" if first.filecount_images is not None else ""
     return (
         f"series={first.series_number} desc='{first.series_description}' "
-        f"echoes=[{echoes}] vols={group[0].n_volumes} acquisition={first.acquisition_time}{filecount}"
+        f"echoes=[{echoes}] vols={group[0].n_volumes} target_vols={group[0].target_n_volumes} acquisition={first.acquisition_time}{filecount}"
     )
 
 
@@ -343,15 +370,33 @@ def ensure_dest_absent(path: Path) -> None:
     ensure(not path.exists(), f"Refusing to overwrite existing path: {path}")
 
 
-def copy_with_sidecar(src_nii: Path, src_json: Path, dst_nii: Path, dst_json: Path, dry_run: bool, reporter: Reporter) -> None:
+def copy_with_sidecar(
+    src_nii: Path,
+    src_json: Path,
+    dst_nii: Path,
+    dst_json: Path,
+    dry_run: bool,
+    reporter: Reporter,
+    truncate_to_vols: Optional[int] = None,
+) -> None:
     ensure_dest_absent(dst_nii)
     ensure_dest_absent(dst_json)
     reporter.log(f"[copy] {src_nii} -> {dst_nii}")
     reporter.log(f"[copy] {src_json} -> {dst_json}")
+    if truncate_to_vols is not None:
+        reporter.log(f"[copy] truncation requested: target_vols={truncate_to_vols} source={src_nii}")
     if dry_run:
         return
     dst_nii.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src_nii, dst_nii)
+    if truncate_to_vols is not None and parse_nifti_volumes(src_nii) > int(truncate_to_vols):
+        if shutil.which("fslroi") is None:
+            raise ImportAbort("Echo-dim4 truncation requested but fslroi is not available on PATH")
+        cmd = ["fslroi", str(src_nii), str(dst_nii), "0", str(int(truncate_to_vols))]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if proc.returncode != 0:
+            raise ImportAbort(f"fslroi truncation failed (exit {proc.returncode}) for {src_nii}: {proc.stdout}")
+    else:
+        shutil.copy2(src_nii, dst_nii)
     shutil.copy2(src_json, dst_json)
 
 
@@ -407,6 +452,7 @@ def main() -> int:
         reporter.log(f"[import] Protocol: {cfg.protocol_name}")
         reporter.log(f"[import] Config file: {config_file}")
         reporter.log(f"[import] Dry run: {int(args.dry_run)}")
+        reporter.log(f"[import] Echo dim4 policy: {cfg.echo_dim4_policy}")
 
         if subject_dir.exists():
             reporter.log(f"[import] Subject dir exists: {subject_dir}")
@@ -471,8 +517,10 @@ def main() -> int:
         for rec in fmap_ap_records + fmap_pa_records:
             validate_record_guardrails(rec, cfg.min_bytes_fmap, cfg.expect_fmap_volumes, "Fieldmap")
 
-        rest_groups = group_multi_echo(rest_records, cfg.expect_echoes_per_run, cfg.expect_rest_volumes, cfg.min_bytes_rest, "Rest")
-        sbref_groups = group_multi_echo(sbref_records, cfg.expect_echoes_per_run, cfg.expect_sbref_volumes, cfg.min_bytes_sbref, "SBref")
+        ensure(cfg.echo_dim4_policy in {"abort", "truncate_to_min"}, f"IMPORT_ECHO_DIM4_POLICY must be abort|truncate_to_min, got: {cfg.echo_dim4_policy}")
+
+        rest_groups = group_multi_echo(rest_records, cfg.expect_echoes_per_run, cfg.expect_rest_volumes, cfg.min_bytes_rest, "Rest", cfg.echo_dim4_policy)
+        sbref_groups = group_multi_echo(sbref_records, cfg.expect_echoes_per_run, cfg.expect_sbref_volumes, cfg.min_bytes_sbref, "SBref", cfg.echo_dim4_policy)
 
         ensure(len(rest_groups) == cfg.expect_rest_runs_per_session, f"Expected {cfg.expect_rest_runs_per_session} resting-state runs, found {len(rest_groups)}")
         expected_sbref_groups = cfg.expect_rest_runs_per_session * cfg.expect_sbref_per_run
@@ -506,26 +554,26 @@ def main() -> int:
             idx = next_anat_index(subject_dir, "T1w")
             dst_nii = subject_dir / "anat" / "unprocessed" / "T1w" / f"T1w_{idx}.nii.gz"
             dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter)
+            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
             manifest_rows.append(("t1w", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
         for rec in sorted(t2w_records, key=lambda r: (r.series_number, r.basename)):
             idx = next_anat_index(subject_dir, "T2w")
             dst_nii = subject_dir / "anat" / "unprocessed" / "T2w" / f"T2w_{idx}.nii.gz"
             dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter)
+            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
             manifest_rows.append(("t2w", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
         for idx, rec in enumerate(sorted(fmap_ap_records, key=lambda r: (r.series_number, r.acquisition_time)), start=1):
             dst_nii = subject_dir / "func" / "unprocessed" / "field_maps" / f"AP_S{session}_R{idx}.nii.gz"
             dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter)
+            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
             manifest_rows.append(("fmap_ap", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
         for idx, rec in enumerate(sorted(fmap_pa_records, key=lambda r: (r.series_number, r.acquisition_time)), start=1):
             dst_nii = subject_dir / "func" / "unprocessed" / "field_maps" / f"PA_S{session}_R{idx}.nii.gz"
             dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter)
+            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
             manifest_rows.append(("fmap_pa", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
         for run_idx, group in enumerate(rest_groups, start=1):
@@ -534,7 +582,7 @@ def main() -> int:
                 echo = int(rec.echo_number or 0)
                 dst_nii = run_dir / f"{cfg.func_file_prefix}_S{session}_R{run_idx}_E{echo}.nii.gz"
                 dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-                copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter)
+                copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
                 manifest_rows.append(("rest", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
         for run_idx, group in enumerate(sbref_groups, start=1):
@@ -543,7 +591,7 @@ def main() -> int:
                 echo = int(rec.echo_number or 0)
                 dst_nii = run_dir / f"SBref_S{session}_R{run_idx}_E{echo}.nii.gz"
                 dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-                copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter)
+                copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
                 manifest_rows.append(("sbref", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
         write_manifest(paths["manifest_path"], manifest_rows)

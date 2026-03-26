@@ -16,7 +16,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 if [[ "$#" -lt 3 ]]; then
-  echo "Usage: $0 <BIDS_ROOT> <SUBJECT> <OUT_SUBJECT_DIR> [--task rest] [--func-dirname rest] [--func-prefix Rest] [--mode symlink|copy] [--overwrite]" >&2
+  echo "Usage: $0 <BIDS_ROOT> <SUBJECT> <OUT_SUBJECT_DIR> [--task rest] [--func-dirname rest] [--func-prefix Rest] [--mode symlink|copy] [--overwrite] [--echo-dim4-policy abort|truncate_to_min]" >&2
   exit 2
 fi
 

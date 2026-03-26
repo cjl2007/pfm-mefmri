@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import gzip
+import struct
+import subprocess
 import os
 import re
 import shutil
@@ -196,6 +199,7 @@ def import_func(
     func_prefix: str,
     mode: str,
     overwrite: bool,
+    echo_dim4_policy: str,
     warnings: List[str],
 ) -> Tuple[int, int]:
     ses_map, run_map, grouped = map_sessions_and_runs(func_files, task, warnings)
@@ -208,9 +212,30 @@ def import_func(
         r = run_map[(ses_lbl, rkey)]
         run_dir = out_root / f"session_{s}" / f"run_{r}"
         run_dir.mkdir(parents=True, exist_ok=True)
-        for echo, src, _ in sorted(entries, key=lambda t: t[0]):
+
+        entry_sorted = sorted(entries, key=lambda t: t[0])
+        vols_by_echo = [(echo, src, ent, parse_nifti_volumes(src)) for echo, src, ent in entry_sorted]
+        run_vols = sorted({v for _, _, _, v in vols_by_echo})
+        target_vols = None
+        if len(run_vols) > 1:
+            detail = ", ".join(f"E{echo}={v}" for echo, _, _, v in vols_by_echo)
+            if echo_dim4_policy == "truncate_to_min":
+                target_vols = int(min(run_vols))
+                warnings.append(
+                    f"Echo dim4 mismatch in ses={ses_lbl} run={rkey} ({detail}); truncating all echoes to min={target_vols}."
+                )
+            else:
+                raise ImportErrorAbort(
+                    f"Echo dim4 mismatch in ses={ses_lbl} run={rkey} ({detail}). "
+                    "Fix/re-import source data, or re-run with --echo-dim4-policy truncate_to_min."
+                )
+
+        for echo, src, _, v in vols_by_echo:
             dst = run_dir / f"{func_prefix}_S{s}_R{r}_E{echo}.nii.gz"
-            symlink_or_copy(src, dst, mode, overwrite)
+            if target_vols is not None and v > target_vols:
+                truncate_nifti(src, dst, target_vols, overwrite)
+            else:
+                symlink_or_copy(src, dst, mode, overwrite)
             copied_nii += 1
             js = sidecar_json_for_nii(src)
             if js.exists():
@@ -228,6 +253,43 @@ def infer_run_from_intended_for(intended_for: List[str]) -> Optional[str]:
         if m:
             return m.group(1)
     return None
+
+
+def parse_nifti_volumes(path: Path) -> int:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rb") as fh:
+        header = fh.read(348)
+    if len(header) < 48:
+        raise ImportErrorAbort(f"NIfTI header too short: {path}")
+    sizeof_hdr = struct.unpack("<I", header[:4])[0]
+    endian = "<"
+    if sizeof_hdr != 348:
+        sizeof_hdr_be = struct.unpack(">I", header[:4])[0]
+        if sizeof_hdr_be != 348:
+            raise ImportErrorAbort(f"Invalid NIfTI header size for {path}")
+        endian = ">"
+    dims = struct.unpack(endian + "8h", header[40:56])
+    ndim = max(dims[0], 0)
+    if ndim >= 4:
+        return max(int(dims[4]), 1)
+    return 1
+
+
+def truncate_nifti(src: Path, dst: Path, target_vols: int, overwrite: bool) -> None:
+    if dst.exists() or dst.is_symlink():
+        if not overwrite:
+            raise ImportErrorAbort(f"Refusing to overwrite existing file: {dst}")
+        if dst.is_dir():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if shutil.which("fslroi") is None:
+        raise ImportErrorAbort("echo dim4 truncation requested but fslroi is not available on PATH")
+    cmd = ["fslroi", str(src), str(dst), "0", str(int(target_vols))]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.returncode != 0:
+        raise ImportErrorAbort(f"fslroi failed (exit {proc.returncode}) for {src}: {proc.stdout}")
 
 
 def import_fmaps(
@@ -332,6 +394,7 @@ def main() -> int:
     ap.add_argument("--func-prefix", default="Rest", help="Pipeline func file prefix (default: Rest)")
     ap.add_argument("--mode", choices=["symlink", "copy"], default="symlink", help="Import mode (default: symlink)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite existing destination files")
+    ap.add_argument("--echo-dim4-policy", choices=["abort", "truncate_to_min"], default="abort", help="Per-run echo dim4 mismatch handling")
     args = ap.parse_args()
 
     bids_root = Path(args.bids_root).resolve()
@@ -358,6 +421,7 @@ def main() -> int:
             args.func_prefix,
             args.mode,
             args.overwrite,
+            args.echo_dim4_policy,
             warnings,
         )
         ap_n, pa_n = import_fmaps(

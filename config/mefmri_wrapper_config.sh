@@ -61,6 +61,7 @@ APPLY_N4_BIAS=0                 # 0|1 ; If PreScan Normalize is turned off at ac
 
 # Pipeline-level output/provenance
 RUN_CONFIG_SNAPSHOT=1           # 1: write effective run metadata snapshot into subject func/qa
+VALIDATE_ECHO_DIM4_POLICY="error"   # error|warn: per-run echo dim4 mismatch handling in validate module
 
 # =============================================================================
 # 3) Masking and Surface-Mapping Settings

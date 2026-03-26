@@ -10,9 +10,14 @@ SubjectDir="${1:?missing SubjectDir}"
 FuncDirName="${2:-${FUNC_DIRNAME:-rest}}"
 FuncFilePrefix="${3:-${FUNC_FILE_PREFIX:-Rest}}"
 StartSession="${4:-${START_SESSION:-1}}"
+VALIDATE_ECHO_DIM4_POLICY="${VALIDATE_ECHO_DIM4_POLICY:-error}"
 
 [[ -d "$SubjectDir" ]] || { echo "ERROR: missing subject directory: $SubjectDir" >&2; exit 2; }
 [[ "$StartSession" =~ ^[0-9]+$ ]] || { echo "ERROR: StartSession must be integer, got: $StartSession" >&2; exit 2; }
+[[ "$VALIDATE_ECHO_DIM4_POLICY" == "error" || "$VALIDATE_ECHO_DIM4_POLICY" == "warn" ]] || {
+  echo "ERROR: VALIDATE_ECHO_DIM4_POLICY must be error|warn, got: $VALIDATE_ECHO_DIM4_POLICY" >&2
+  exit 2
+}
 
 Subject="$(basename "$SubjectDir")"
 
@@ -80,7 +85,7 @@ validate_run_payload() {
   local expected_prefix="$2"
   local -a nii_files=() json_files=()
   local nf jf echo_tag
-  local -a echo_sizes=() echo_names=()
+  local -a echo_sizes=() echo_names=() echo_vols=()
 
   mapfile -t nii_files < <(find "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.nii.gz" | sort -V)
   if [[ "${#nii_files[@]}" -eq 0 ]]; then
@@ -108,6 +113,11 @@ validate_run_payload() {
     fi
     echo_sizes+=("$(stat -c%s "$nf")")
     echo_names+=("$(basename "$nf")")
+    if command -v fslnvols >/dev/null 2>&1; then
+      echo_vols+=("$(fslnvols "$nf")")
+    else
+      echo_vols+=("")
+    fi
   done
 
   if [[ "${#echo_sizes[@]}" -gt 1 ]]; then
@@ -121,6 +131,42 @@ validate_run_payload() {
         warn "Echo size trend check in $run_dir: expected decreasing size but found ${echo_names[i]} (${echo_sizes[i]} B) <= ${echo_names[i+1]} (${echo_sizes[i+1]} B). Double-check data ordering."
       fi
     done
+  fi
+
+  if [[ "${#echo_vols[@]}" -gt 1 ]]; then
+    if [[ -z "${echo_vols[0]}" ]]; then
+      warn "Echo dim4 check skipped in $run_dir because fslnvols is unavailable on PATH."
+    else
+      local min_vol="${echo_vols[0]}"
+      local max_vol="${echo_vols[0]}"
+      local dim4_mismatch=0
+      local i
+      for i in "${!echo_vols[@]}"; do
+        local v="${echo_vols[i]}"
+        if [[ -z "$v" || ! "$v" =~ ^[0-9]+$ ]]; then
+          warn "Echo dim4 check skipped in $run_dir due to non-numeric fslnvols output for ${echo_names[i]}: '$v'"
+          dim4_mismatch=0
+          break
+        fi
+        (( v < min_vol )) && min_vol="$v"
+        (( v > max_vol )) && max_vol="$v"
+      done
+      if (( max_vol != min_vol )); then
+        dim4_mismatch=1
+      fi
+      if (( dim4_mismatch == 1 )); then
+        local details=""
+        for i in "${!echo_vols[@]}"; do
+          details+="${echo_names[i]}=${echo_vols[i]} "
+        done
+        local msg="Echo dim4 mismatch in $run_dir (per-echo timepoints: $details; min=$min_vol, max=$max_vol). This commonly indicates incomplete copy/truncation from source transfer. Recommended: re-import after fixing source data. Alternative: trim all echoes in this run to min=$min_vol (for example with fslroi) before running the pipeline."
+        if [[ "$VALIDATE_ECHO_DIM4_POLICY" == "warn" ]]; then
+          warn "$msg"
+        else
+          err "$msg"
+        fi
+      fi
+    fi
   fi
 
   python3 - "$run_dir" "$FuncFilePrefix" <<'PY'
@@ -218,6 +264,7 @@ echo "[validate] Subject: $Subject"
 echo "[validate] SubjectDir: $SubjectDir"
 echo "[validate] Functional naming: func/$FuncDirName, prefix ${FuncFilePrefix}_*"
 echo "[validate] StartSession: $StartSession"
+echo "[validate] Echo dim4 policy: $VALIDATE_ECHO_DIM4_POLICY"
 
 check_anat
 check_func
