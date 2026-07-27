@@ -224,6 +224,19 @@ Both strategies can optionally feed the areal parcellation step
 (`PFM_AREAL_ENABLE=1`), which sub-parcellates the network-level output into
 smaller areal parcels.
 
+Ridge-Fusion also has a disabled-by-default experimental multi-network layer.
+Set `PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=1` with areal parcellation to test
+fixed parcels across blocked random temporal thirds, calibrate added-network
+held-out gains with a parcelwise candidate-identity null and cortex/subcortex
+FDR, and emit both whole-parcel and localized two-/three-network stripe maps.
+The stricter max-statistic result is retained as a high-confidence tier. See
+`docs/pfm-outputs.md` for interpretation and controls. Use
+`PFM_RF_MULTINETWORK_STRIPE_PRESET="strict|balanced|loose|custom"` as the
+single user-facing tightness control; `balanced` is the recommended
+experimental starting point. Preliminary behavior is encouraging, but the
+feature remains opt-in while it is tested across more participants and
+acquisition conditions.
+
 By default, PFM writes strategy-specific outputs:
 
 ```text

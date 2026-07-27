@@ -1,0 +1,15 @@
+# FSL b02b0 configuration with subsampling disabled.
+# Use for odd matrix dimensions that fail with b02b0.cnf subsampling.
+--warpres=20,16,14,12,10,6,4,4,4
+--subsamp=1,1,1,1,1,1,1,1,1
+--fwhm=8,6,4,3,3,2,1,0,0
+--miter=5,5,5,5,5,10,10,20,50
+--lambda=0.005,0.001,0.0001,0.000015,0.000005,0.0000005,0.00000005,0.0000000005,0.00000000001
+--ssqlambda=1
+--regmod=bending_energy
+--estmov=1,1,1,1,1,0,0,0,0
+--minmet=0,0,0,0,0,1,1,1,1
+--splineorder=3
+--numprec=double
+--interp=spline
+--scale=1

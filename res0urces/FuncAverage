@@ -17,8 +17,8 @@ Usage() {
     echo "Compulsory arguments"
     echo "  -o <name>        : output basename"
     echo "Optional arguments"
-    echo "  -s <image>       : standard image (default is MNI152_T1_2mm)"
-    echo "  -m <image>       : standard brain mask (default is MNI152_T1_2mm_brain_mask_dil)"
+    echo "  -s <image>       : standard image (default is repo templates/FSL/MNI152_T2_2mm.nii.gz)"
+    echo "  -m <image>       : standard brain mask (default is repo templates/FSL/MNI152_T1_2mm_brain_mask_dil.nii.gz)"
     echo "  -n               : do not crop images"
     echo "  -w <dir>         : local, temporary working directory (to be cleaned up - i.e. deleted)"
     echo "  -b <brainsize>   : specify brainsize in mm for internal ROI (via robustfov)"
@@ -46,8 +46,20 @@ crop=yes
 verbose=no
 wdir=
 cleanup=yes
-StandardImage=${FSLDIR}/data/standard/MNI152_T2_2mm
-StandardMask=${FSLDIR}/data/standard/MNI152_T1_2mm_brain_mask_dil
+ScriptDir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RepoDir="$(cd "${ScriptDir}/.." && pwd)"
+RepoStandardImage="${RepoDir}/templates/FSL/MNI152_T2_2mm.nii.gz"
+RepoStandardMask="${RepoDir}/templates/FSL/MNI152_T1_2mm_brain_mask_dil.nii.gz"
+if [ -f "$RepoStandardImage" ] ; then
+    StandardImage="$RepoStandardImage"
+else
+    StandardImage="${FSLDIR}/data/standard/MNI152_T2_2mm"
+fi
+if [ -f "$RepoStandardMask" ] ; then
+    StandardMask="$RepoStandardMask"
+else
+    StandardMask="${FSLDIR}/data/standard/MNI152_T1_2mm_brain_mask_dil"
+fi
 
 if [ $# -eq 0 ] ; then Usage; exit 0; fi
 while [ $# -ge 1 ] ; do
@@ -192,4 +204,3 @@ if [ $cleanup != no ] ; then
 	fi
     fi
 fi
-

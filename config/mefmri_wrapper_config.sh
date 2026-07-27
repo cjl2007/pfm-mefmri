@@ -105,6 +105,7 @@ DISTORTION_CORRECTION_MODE="topup" # topup|direct_b0|medic|none ; MEDIC/warpkit 
 FM_PE_MODE="infer"               # infer|config
 FM_AP_PE_DIR=""                  # e.g. j-
 FM_PA_PE_DIR=""                  # e.g. j
+TOPUP_CONFIG="b02b0.cnf"         # topup config name/path; for odd dimensions use "$MEDIR/templates/FSL/b02b0_nosubsamp.cnf"
 EPIREG_PEDIR=""                  # empty => infer from PE.txt
 SCAN_SPECIFIC_FM=1
 FM_DIRECT_B0_DELTA_TE_MS=2.65    # fsl_prepare_fieldmap delta TE for direct B0/gradient-echo maps
@@ -407,6 +408,35 @@ PFM_AREAL_MIN_SIZE=30             # minimum parcel size in grayordinates
 PFM_PRIORS_MAT="$PFM_NETWORK_PRIORS_CORTICAL_MAT"
 PFM_SUBCORT_PRIORS_NII="$PFM_NETWORK_PRIORS_SUBCORTICAL_NII"
 PFM_NEIGHBORS_MAT="$PFM_RESOURCES_ROOT/Cifti_surf_neighbors_LR_normalwall.mat"
+
+# Experimental multi-network Ridge-Fusion extension (requires PFM_AREAL_ENABLE=1).
+# Disabled by default; emits null-selected whole-parcel and localized maps.
+# Preliminary behavior is encouraging; keep opt-in pending broader validation.
+PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=0
+PFM_RF_MULTINETWORK_STRIPE_PRESET="balanced" # strict | balanced | loose | custom
+PFM_RF_MULTINETWORK_OUTDIR_NAME="ExperimentalMultiNetwork"
+PFM_RF_MULTINETWORK_REFERENCE_COUNT=1500
+PFM_RF_MULTINETWORK_REFERENCE_SEED=12345
+PFM_RF_MULTINETWORK_CV_LOCAL_EXCLUSION_MM=30
+PFM_RF_MULTINETWORK_SPLIT_REPEATS=8
+PFM_RF_MULTINETWORK_SPLIT_BLOCK_LENGTH=25
+PFM_RF_MULTINETWORK_SPLIT_SEED=12345
+# Presets override consistency, correction, weights, and local thresholds below;
+# use STRIPE_PRESET="custom" to control those individually. Seeds/repeats remain active.
+PFM_RF_MULTINETWORK_MIN_CONSISTENCY_FRACTION=0.8
+PFM_RF_MULTINETWORK_MIN_POSITIVE_GAIN_FRACTION=0.8
+PFM_RF_MULTINETWORK_SELECTION_CORRECTION="fdr" # fdr (descriptive default) | fwer (extreme-confidence tier)
+PFM_RF_MULTINETWORK_FDR_ALPHA=0.05
+PFM_RF_MULTINETWORK_PARCEL_NULL_ITERATIONS=2000
+PFM_RF_MULTINETWORK_PARCEL_NULL_SEED=12345
+PFM_RF_MULTINETWORK_MIN_SECOND_WEIGHT=0.20
+PFM_RF_MULTINETWORK_MIN_THIRD_WEIGHT=0.15
+PFM_RF_MULTINETWORK_NULL_ALPHA=0.05
+PFM_RF_MULTINETWORK_MAX_NETWORKS=3
+PFM_RF_MULTINETWORK_LOCAL_SECONDARY_PROB_MIN=0.10
+PFM_RF_MULTINETWORK_LOCAL_SECONDARY_RATIO_MIN=0.40
+PFM_RF_MULTINETWORK_MIN_CORTICAL_CLUSTER_VERTICES=20
+PFM_RF_MULTINETWORK_MIN_SUBCORTICAL_CLUSTER_VOXELS=5
 
 # -----------------------------------------------------------------------------
 # 4j) PFM Infomap
