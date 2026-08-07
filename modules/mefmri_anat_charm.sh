@@ -5,7 +5,7 @@
 # Purpose:
 #   1) Run SimNIBS CHARM using HCP outputs in ${StudyFolder}/${Subject}/anat/T1w
 #   2) Rename m2m_${Subject} -> anat/charm and stash log
-#   3) Cleanup aparc+aseg using CHARM labeling with targeted ROI retention
+#   3) Write a CHARM-refined aparc+aseg derivative with targeted ROI retention
 #   4) Create a binarized brain mask from CHARM labeling (labeling < 100)
 #   5) Apply that mask to:
 #        - T1w_acpc.nii.gz               -> T1w_acpc_brain.nii.gz
@@ -221,8 +221,8 @@ if [ ! -f "${CHARM_LABELING}" ]; then
   exit 1
 fi
 
-# ---- aparc+aseg cleanup ----
-echo "Cleaning aparc+aseg using CHARM tissues, then CHARM labeling ROI retention"
+# ---- CHARM-refined aparc+aseg derivative ----
+echo "Writing CHARM-refined aparc+aseg derivative using CHARM tissues, then CHARM labeling ROI retention"
 
 if [ ! -f "${ASEG_FILE}" ]; then
   echo "ERROR: Missing aseg file: ${ASEG_FILE}" >&2
@@ -234,6 +234,8 @@ cd "${T1W_DIR}" || exit 1
 # Preserve original aparc+aseg (only create once)
 if [ ! -f "aparc+aseg_original.nii.gz" ]; then
   cp "aparc+aseg.nii.gz" "aparc+aseg_original.nii.gz"
+else
+  cp -f "aparc+aseg_original.nii.gz" "aparc+aseg.nii.gz"
 fi
 if [ ! -f "T1w_acpc_brain_mask.precharm.nii.gz" ] && [ -f "T1w_acpc_brain_mask.nii.gz" ]; then
   cp -f "T1w_acpc_brain_mask.nii.gz" "T1w_acpc_brain_mask.precharm.nii.gz"
@@ -251,7 +253,9 @@ fi
 orig="aparc+aseg_original.nii.gz"
 lab="${CHARM_LABELING}"
 tiss="${CHARM_TISSUE}"
-target="aparc+aseg.nii.gz"
+target="aparc+aseg_charm_refined.nii.gz"
+
+cp -f "${orig}" "${target}"
 
 # Step 1: apply legacy exclusion mask from CHARM final_tissues (before reinsertion).
 fslmaths "${tiss}" -thr 1 -uthr 1 -bin tmp_tiss_1.nii.gz

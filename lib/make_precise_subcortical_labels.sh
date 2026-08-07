@@ -52,7 +52,13 @@ make_space_labels() {
   wb_command -volume-label-import "${TMP_DIR}/FinalLabels.nii.gz" "${SUBCORT_LABELS_TXT}" "${out}" -discard-others >/dev/null 2>&1
 }
 
-make_space_labels "${Subdir}/anat/T1w/aparc+aseg.nii.gz" "${ROIS_DIR}/Subcortical_ROIs_acpc.nii.gz"
+ACPC_APARC="${Subdir}/anat/T1w/aparc+aseg.nii.gz"
+ACPC_CHARM_REFINED="${Subdir}/anat/T1w/aparc+aseg_charm_refined.nii.gz"
+if [[ -f "${ACPC_CHARM_REFINED}" ]]; then
+  ACPC_APARC="${ACPC_CHARM_REFINED}"
+fi
+
+make_space_labels "${ACPC_APARC}" "${ROIS_DIR}/Subcortical_ROIs_acpc.nii.gz"
 make_space_labels "${Subdir}/anat/MNINonLinear/aparc+aseg.nii.gz" "${ROIS_DIR}/Subcortical_ROIs_nonlin.nii.gz"
 
 rm -rf "${TMP_DIR}"

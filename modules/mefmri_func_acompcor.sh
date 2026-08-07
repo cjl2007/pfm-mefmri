@@ -25,6 +25,7 @@ Environment overrides:
   ACOMPCOR_T2SMAP_SOURCE_NAME   Tedana T2* map filename to copy into aCompCor dir
   ACOMPCOR_T2SMAP_OUTPUT_NAME   Output T2* map filename inside aCompCor dir
   ACOMPCOR_EXTRAAXIAL_STD_PCT   Extra-axial temporal SD threshold in percent
+  ACOMPCOR_EMPTY_COMPARTMENT_ACTION ignore|warn|error (default: warn)
   ACOMPCOR_COMPARTMENT_COND_MAX Per-compartment conditioning threshold
   ACOMPCOR_DESIGN_COND_MAX      Final design conditioning threshold
   ACOMPCOR_BANDPASS_ENABLE      Run FSL -bptf bandpass (default: 1)
@@ -66,6 +67,7 @@ FuncFilePrefix="${FUNC_FILE_PREFIX:-Rest}"
 : "${ACOMPCOR_EXTRAAXIAL_STD_PCT:=2.5}"
 : "${ACOMPCOR_EXTRAAXIAL_DILATE_ITERS:=1}"
 : "${ACOMPCOR_WM_ERODE_ITERS:=2}"
+: "${ACOMPCOR_EMPTY_COMPARTMENT_ACTION:=warn}"
 : "${ACOMPCOR_COMPARTMENT_COND_MAX:=30}"
 : "${ACOMPCOR_DESIGN_COND_MAX:=250}"
 : "${ACOMPCOR_BANDPASS_ENABLE:=1}"
@@ -173,6 +175,7 @@ for s in $sessions; do
       --extraaxial-std-pct "$ACOMPCOR_EXTRAAXIAL_STD_PCT"
       --extraaxial-dilate-iters "$ACOMPCOR_EXTRAAXIAL_DILATE_ITERS"
       --wm-erode-iters "$ACOMPCOR_WM_ERODE_ITERS"
+      --empty-compartment-action "$ACOMPCOR_EMPTY_COMPARTMENT_ACTION"
       --compartment-cond-max "$ACOMPCOR_COMPARTMENT_COND_MAX"
       --design-cond-max "$ACOMPCOR_DESIGN_COND_MAX"
     )

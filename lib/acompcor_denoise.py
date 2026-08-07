@@ -59,6 +59,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--wm-erode-iters", type=int, default=2, help="WM mask erosion iterations after resampling")
     ap.add_argument("--compartment-cond-max", type=float, default=30.0, help="Max condition number per nuisance compartment")
     ap.add_argument("--design-cond-max", type=float, default=250.0, help="Max condition number for combined nuisance design")
+    ap.add_argument(
+        "--empty-compartment-action",
+        default="warn",
+        choices=("ignore", "warn", "error"),
+        help="Behavior when a requested nuisance compartment has zero voxels after mask construction",
+    )
     return ap.parse_args()
 
 
@@ -223,6 +229,21 @@ def write_text_matrix(path: Path, array: np.ndarray) -> None:
     np.savetxt(path, array, fmt="%.8f", delimiter="\t")
 
 
+def handle_empty_compartments(results: Sequence[CompartmentResult], action: str) -> List[str]:
+    warnings = [
+        f"{res.name} compartment is empty after mask construction; no regressors will be generated."
+        for res in results
+        if res.n_voxels == 0
+    ]
+    if not warnings or action == "ignore":
+        return warnings
+    for warning in warnings:
+        print(f"WARNING: {warning}", file=sys.stderr)
+    if action == "error":
+        raise RuntimeError("Empty requested aCompCor compartment(s): " + "; ".join(warnings))
+    return warnings
+
+
 def run_acompcor(args: argparse.Namespace) -> Dict[str, object]:
     subdir = Path(args.subdir).resolve()
     in_path = Path(args.input).resolve()
@@ -262,6 +283,7 @@ def run_acompcor(args: argparse.Namespace) -> Dict[str, object]:
     wm = compartment_regressors(data_2d, wm_mask, float(args.compartment_cond_max), "white_matter")
     vent = compartment_regressors(data_2d, vent_mask, float(args.compartment_cond_max), "ventricles")
     extra = compartment_regressors(data_2d, extra_mask, float(args.compartment_cond_max), "extra_axial")
+    compartment_warnings = handle_empty_compartments((wm, vent, extra), args.empty_compartment_action)
 
     gs = compute_global_signal(data_2d, ribbon_mask_3d)
     gs_deriv = np.concatenate(([0.0], np.diff(gs)))
@@ -356,6 +378,7 @@ def run_acompcor(args: argparse.Namespace) -> Dict[str, object]:
         "design_precondition_ncols": int(design_pre.shape[1]),
         "design_conditioned_ncols": int(n_design_components),
         "design_eigenvalues": design_eigvals,
+        "warnings": compartment_warnings,
     }
     (mask_dir / "acompcor_summary.json").write_text(json.dumps(summary, indent=2))
     return summary
