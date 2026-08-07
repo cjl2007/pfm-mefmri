@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Regress nearby gray-matter signal from subcortical voxel timeseries.
+"""Regress nearby cortical signal from subcortical voxel timeseries.
 
 Python port of the legacy regress_cortical_signals.m behavior:
-  - Build neighborhood by Euclidean distance threshold in CIFTI grayordinate space
-  - For each subcortical voxel: regress y ~ mean(neighbors) + intercept
-  - Replace only subcortical rows with residuals
+  - Identify subcortical voxels adjacent to cortex within a distance threshold
+  - For each adjacent subcortical voxel: regress y ~ mean(nearby cortex) + intercept
+  - Replace only regressed subcortical rows with residuals
 """
 
 from __future__ import annotations
@@ -66,12 +66,27 @@ def save_dtseries(data_time_by_gray: np.ndarray, ref_img: nib.Cifti2Image, out_p
     nib.save(out_img, str(out_path))
 
 
+def compute_regression_masks_from_distance(
+    row: int,
+    distance_row: np.ndarray,
+    cortex: np.ndarray,
+    distance_mm: float,
+) -> tuple[bool, np.ndarray]:
+    cortex_idx = np.where(cortex)[0]
+    near_cortex = np.asarray(distance_row[cortex_idx] <= distance_mm)
+    should_regress = bool(near_cortex.any())
+    nb_mask = np.zeros_like(cortex, dtype=bool)
+    nb_mask[cortex_idx] = near_cortex
+    return should_regress, nb_mask
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Subcortical neighborhood regression for CIFTI dtseries")
     ap.add_argument("--in-cifti", required=True)
     ap.add_argument("--out-cifti", required=True)
     ap.add_argument("--left-surf", required=True)
     ap.add_argument("--right-surf", required=True)
+    ap.add_argument("--distance-npy", default="", help="Full grayordinate distance matrix; preferred for legacy-compatible neighborhoods")
     ap.add_argument("--distance-mm", type=float, default=20.0)
     ap.add_argument("--max-subvox", type=int, default=0, help="Optional debug cap on #subcortical voxels (0=all)")
     args = ap.parse_args()
@@ -85,7 +100,7 @@ def main() -> int:
     if data.ndim != 2:
         raise ValueError(f"Expected 2D dtseries (time x grayordinates), got {data.shape}")
 
-    coords, _cortex, subcort = load_coords_and_masks(
+    coords, cortex, subcort = load_coords_and_masks(
         img, left_surf=Path(args.left_surf), right_surf=Path(args.right_surf)
     )
     sub_idx = np.where(subcort)[0]
@@ -95,11 +110,29 @@ def main() -> int:
     out = data.copy()
     ones = np.ones((data.shape[0], 1), dtype=np.float64)
     dist_mm = float(args.distance_mm)
+    dist = np.load(args.distance_npy, mmap_mode="r") if args.distance_npy else None
+    if dist is not None and dist.shape != (data.shape[1], data.shape[1]):
+        raise ValueError(f"Distance matrix shape {dist.shape} does not match CIFTI grayordinates {data.shape[1]}")
 
-    # Legacy behavior: regress each subcortical voxel against mean nearby GM signal.
+    n_regressed = 0
+    n_skipped = 0
     for i, gi in enumerate(sub_idx, start=1):
-        d = np.linalg.norm(coords - coords[gi][None, :], axis=1)
-        nb_mask = d <= dist_mm
+        if dist is not None:
+            should_regress, nb_mask = compute_regression_masks_from_distance(
+                int(gi),
+                np.asarray(dist[gi, :]),
+                cortex,
+                dist_mm,
+            )
+        else:
+            d = np.linalg.norm(coords - coords[gi][None, :], axis=1)
+            should_regress = bool(np.any(d[cortex] <= dist_mm))
+            nb_mask = cortex & (d <= dist_mm)
+
+        if not should_regress or not nb_mask.any():
+            n_skipped += 1
+            continue
+
         nb_ts = data[:, nb_mask]
         if nb_ts.shape[1] > 1:
             nb_mean = nb_ts.mean(axis=1, dtype=np.float64)
@@ -111,11 +144,13 @@ def main() -> int:
         beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
         resid = y - X @ beta
         out[:, gi] = resid.astype(np.float32, copy=False)
+        n_regressed += 1
 
         if i % 1000 == 0:
             print(f"[subcort_regress] processed {i}/{len(sub_idx)} subcortical voxels")
 
     save_dtseries(out, img, out_path)
+    print(f"[subcort_regress] regressed={n_regressed} skipped={n_skipped} neighbor_source=cortex")
     print(f"[subcort_regress] wrote: {out_path}")
     return 0
 

@@ -197,6 +197,22 @@ fi
 mkdir -p "$PREP_DIR"
 echo "[pfm] prep dir=${PREP_DIR} (PFM-only intermediates)"
 
+if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
+  echo "[pfm] distance matrix=${PFM_DISTANCE_MATRIX}"
+  if [[ ! -f "$PFM_DISTANCE_MATRIX" && "$PFM_DISTANCE_BUILD_IF_MISSING" == "1" ]]; then
+    echo "[pfm] building distance matrix (default model) -> ${PFM_DISTANCE_MATRIX}"
+    "$PFM_PYTHON" "$MEDIR/lib/pfm_distance_matrix_build.py" \
+      --ref-cifti "$PFM_INPUT_CIFTI" \
+      --left-surf "$L_MID" \
+      --right-surf "$R_MID" \
+      --out-npy "$PFM_DISTANCE_MATRIX" \
+      --chunk-rows "$PFM_DISTANCE_VARIANT_CHUNK_ROWS" \
+      --cortex-distance-mode "$PFM_DISTANCE_CORTEX_MODE" \
+      --euclidean-override-mm "$PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM"
+  fi
+  [[ -f "$PFM_DISTANCE_MATRIX" ]] || { echo "ERROR: distance matrix not found: $PFM_DISTANCE_MATRIX"; exit 2; }
+fi
+
 if [[ "${PFM_RF_SUBCORT_REGRESS_ENABLE}" == "1" ]]; then
   IN_BASENAME="$(basename "$PFM_INPUT_CIFTI" .dtseries.nii)"
   PFM_INPUT_CIFTI_REG="${PREP_DIR}/${IN_BASENAME}+SubcortRegression.dtseries.nii"
@@ -206,6 +222,7 @@ if [[ "${PFM_RF_SUBCORT_REGRESS_ENABLE}" == "1" ]]; then
     --out-cifti "$PFM_INPUT_CIFTI_REG" \
     --left-surf "$L_MID" \
     --right-surf "$R_MID" \
+    --distance-npy "$PFM_DISTANCE_MATRIX" \
     --distance-mm "$PFM_RF_SUBCORT_REGRESS_DISTANCE_MM"
   PFM_INPUT_CIFTI="$PFM_INPUT_CIFTI_REG"
 fi
@@ -226,18 +243,6 @@ PFM_AREAL_DISTANCE_MATRIX=""
 
 if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
 
-  echo "[pfm] distance matrix=${PFM_DISTANCE_MATRIX}"
-  if [[ ! -f "$PFM_DISTANCE_MATRIX" && "$PFM_DISTANCE_BUILD_IF_MISSING" == "1" ]]; then
-    echo "[pfm] building distance matrix (default model) -> ${PFM_DISTANCE_MATRIX}"
-    "$PFM_PYTHON" "$MEDIR/lib/pfm_distance_matrix_build.py" \
-      --ref-cifti "$PFM_INPUT_CIFTI" \
-      --left-surf "$L_MID" \
-      --right-surf "$R_MID" \
-      --out-npy "$PFM_DISTANCE_MATRIX" \
-      --chunk-rows "$PFM_DISTANCE_VARIANT_CHUNK_ROWS" \
-      --cortex-distance-mode "$PFM_DISTANCE_CORTEX_MODE" \
-      --euclidean-override-mm "$PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM"
-  fi
   [[ -f "$PFM_DISTANCE_MATRIX" ]] || { echo "ERROR: distance matrix not found: $PFM_DISTANCE_MATRIX"; exit 2; }
   [[ -f "$PFM_PRIORS_MAT" ]] || { echo "ERROR: missing PFM cortical network priors mat: $PFM_PRIORS_MAT"; exit 2; }
 
