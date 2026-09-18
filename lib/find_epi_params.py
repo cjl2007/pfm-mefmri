@@ -66,6 +66,11 @@ def main() -> None:
     ap.add_argument("--func-name", default="rest")
     ap.add_argument("--func-prefix", default="Rest")
     ap.add_argument("--start-session", type=int, default=1)
+    ap.add_argument(
+        "--no-fieldmap-mode",
+        action="store_true",
+        help="Allow functional metadata without EffectiveEchoSpacing",
+    )
     args = ap.parse_args()
 
     subdir = Path(args.subdir)
@@ -118,8 +123,10 @@ def main() -> None:
 
             assert last_j is not None
             tr = float(last_j["RepetitionTime"])
-            ees = float(last_j["EffectiveEchoSpacing"])
-            all_ees.append(ees)
+            ees_val = last_j.get("EffectiveEchoSpacing")
+            ees = None if ees_val is None else float(ees_val)
+            if ees is not None:
+                all_ees.append(ees)
 
             first_j = json.loads(json_files[0].read_text())
             slice_times = [float(x) for x in first_j["SliceTiming"]]
@@ -130,7 +137,10 @@ def main() -> None:
 
             (out_run / "TE.txt").write_text(" ".join(fmt_num(v) for v in te_vals) + "\n")
             (out_run / "TR.txt").write_text(fmt_num(tr) + "\n")
-            (out_run / "EffectiveEchoSpacing.txt").write_text(fmt_num(ees) + "\n")
+            if ees is not None:
+                (out_run / "EffectiveEchoSpacing.txt").write_text(fmt_num(ees) + "\n")
+            elif not args.no_fieldmap_mode:
+                raise KeyError("EffectiveEchoSpacing")
             (out_run / "SliceTiming.txt").write_text("\n".join(fmt_num(v) for v in slice_timing) + "\n")
             (out_run / "PE.txt").write_text(pedir + "\n")
 
