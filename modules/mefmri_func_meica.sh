@@ -24,8 +24,9 @@ WORKER_RUNDIR="${9:-}"
 Subdir="$StudyFolder/$Subject"
 FuncDirName="${FUNC_DIRNAME:-rest}"
 FuncFilePrefix="${FUNC_FILE_PREFIX:-Rest}"
-# Coreg currently writes transform-space derivatives under func/xfms/rest.
-FuncXfmsDir="${FUNC_XFMS_DIRNAME:-rest}"
+# Coreg writes transform-space derivatives under func/xfms/$FuncXfmsDir.
+FuncXfmsDir="${FUNC_XFMS_DIRNAME:-$FuncDirName}"
+AtlasTemplate="${AtlasTemplate:-$MEDIR/res0urces/MNI152_T1_2mm.nii.gz}"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 die() { echo "ERROR: $*" >&2; exit 2; }
@@ -62,6 +63,26 @@ MEICA_RECLASS_NO_REPORTS="${MEICA_RECLASS_NO_REPORTS:-0}"     # 0|1
 MEICA_RECLASS_SUBDIR="${MEICA_RECLASS_SUBDIR:-ManualComponentClassification}"
 MEICA_TEDANA_SUBDIR="${MEICA_TEDANA_SUBDIR:-Tedana}"
 MEICA_RECLASSIFY_PY="$MEDIR/lib/meica_reclassify_components.py"
+MEICA_RECLASSIFY_IMPLEMENTATION="${MEICA_RECLASSIFY_IMPLEMENTATION:-standard}"
+MEICA_RECLASSIFY_SPATIAL_PY="${MEICA_RECLASSIFY_SPATIAL_PY:-${MEICA_RECLASSIFY_EXPERIMENTAL_PY:-$MEDIR/lib/meica_reclassify_components_spatial.py}}"
+MEICA_RECLASSIFY_SPATIAL_SUBDIR="${MEICA_RECLASSIFY_SPATIAL_SUBDIR:-${MEICA_RECLASSIFY_EXPERIMENTAL_SUBDIR:-ReclassifySpatialTissue}}"
+MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES="${MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES:-${MEICA_RECLASSIFY_EXPERIMENTAL_TRAINING_FEATURES:-$MEDIR/res0urces/meica_reclassify_spatial_training_features.csv.gz}}"
+MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE="${MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE:-${MEICA_RECLASSIFY_EXPERIMENTAL_NEIGHBOR_TABLE:-}}"
+MEICA_RECLASSIFY_SPATIAL_SPECTRAL_KMAX="${MEICA_RECLASSIFY_SPATIAL_SPECTRAL_KMAX:-${MEICA_RECLASSIFY_EXPERIMENTAL_SPECTRAL_KMAX:-120}}"
+MEICA_RECLASSIFY_SPATIAL_RF_TREES="${MEICA_RECLASSIFY_SPATIAL_RF_TREES:-${MEICA_RECLASSIFY_EXPERIMENTAL_RF_TREES:-100}}"
+MEICA_RECLASSIFY_SPATIAL_WM_KILL_RATIO="${MEICA_RECLASSIFY_SPATIAL_WM_KILL_RATIO:-${MEICA_RECLASSIFY_EXPERIMENTAL_WM_KILL_RATIO:-1.15}}"
+MEICA_RECLASSIFY_SPATIAL_SUBCORT_PROTECT_RATIO="${MEICA_RECLASSIFY_SPATIAL_SUBCORT_PROTECT_RATIO:-${MEICA_RECLASSIFY_EXPERIMENTAL_SUBCORT_PROTECT_RATIO:-1.25}}"
+MEICA_RECLASSIFY_SPATIAL_CEREBELLUM_PROTECT_RATIO="${MEICA_RECLASSIFY_SPATIAL_CEREBELLUM_PROTECT_RATIO:-${MEICA_RECLASSIFY_EXPERIMENTAL_CEREBELLUM_PROTECT_RATIO:-1.25}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIES="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIES:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIES:-1}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_CLASSES="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_CLASSES:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_CLASSES:-AcceptedFinal,RejectedFinal,Killed,Rescued,AcceptedMarkedForReview}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MAX_COMPONENTS="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MAX_COMPONENTS:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_MAX_COMPONENTS:-350}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FPS="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FPS:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_FPS:-0.35}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MP4="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MP4:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_MP4:-1}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_GIF="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_GIF:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_GIF:-0}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_TARGET_SIZE_MB="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_TARGET_SIZE_MB:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_TARGET_SIZE_MB:-10}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_KEEP_SOURCE="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_KEEP_SOURCE:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_KEEP_SOURCE:-0}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFMPEG="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFMPEG:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_FFMPEG:-ffmpeg}}"
+MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFPROBE="${MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFPROBE:-${MEICA_RECLASSIFY_EXPERIMENTAL_QC_MOVIE_FFPROBE:-ffprobe}}"
 MEICA_QC_CIFTI_ENABLE="${MEICA_QC_CIFTI_ENABLE:-1}"           # 0|1
 MEICA_QC_CIFTI_TAGS="${MEICA_QC_CIFTI_TAGS:-betas_OC}"        # comma-separated: betas_OC,t2sv,s0v
 MEICA_ORIG_ALIAS_ENABLE="${MEICA_ORIG_ALIAS_ENABLE:-1}"       # 1 => expose modern tedana outputs under legacy/orig names
@@ -75,13 +96,15 @@ MEICA_NSI_KILL_INTERCEPT="${MEICA_NSI_KILL_INTERCEPT:-0.14}"
 MEICA_NSI_KILL_SLOPE="${MEICA_NSI_KILL_SLOPE:-0.25}"
 MEICA_NSI_GUARDRAIL_KAPPA_RHO="${MEICA_NSI_GUARDRAIL_KAPPA_RHO:-1}" # 0|1
 MEICA_SUBCORT_RATIO_THRESH="${MEICA_SUBCORT_RATIO_THRESH:-5.0}"
-MEICA_KILL_PRIORITY_ENABLE="${MEICA_KILL_PRIORITY_ENABLE:-0}"       # 0|1
+MEICA_KILL_PRIORITY_ENABLE="${MEICA_KILL_PRIORITY_ENABLE:-0}"       # 0|1; legacy aggressive C-style default
 MEICA_KILL_PRIORITY_W_LOGRATIO="${MEICA_KILL_PRIORITY_W_LOGRATIO:-0.50}"
 MEICA_KILL_PRIORITY_W_NSI="${MEICA_KILL_PRIORITY_W_NSI:-0.30}"
 MEICA_KILL_PRIORITY_W_VAR="${MEICA_KILL_PRIORITY_W_VAR:-0.20}"
 MEICA_KILL_VAR_FLOOR_QUANTILE="${MEICA_KILL_VAR_FLOOR_QUANTILE:-0.60}"
 MEICA_KILL_CUMVAR_CAP="${MEICA_KILL_CUMVAR_CAP:-0.95}"
 MEICA_SKIP_TEDANA_IF_EXISTS="${MEICA_SKIP_TEDANA_IF_EXISTS:-0}"     # 0|1
+MEICA_TEDPCA_ZERO_COMPONENT_RETRY="${MEICA_TEDPCA_ZERO_COMPONENT_RETRY:-1}" # 0|1
+MEICA_TEDPCA_ZERO_COMPONENT_FALLBACK="${MEICA_TEDPCA_ZERO_COMPONENT_FALLBACK:-aic}"
 
 resolve_meica_priors_mat() {
   local -a candidates=()
@@ -145,6 +168,10 @@ case "$MEICA_RECLASS_NO_REPORTS" in
   0|1) ;;
   *) die "Invalid MEICA_RECLASS_NO_REPORTS=$MEICA_RECLASS_NO_REPORTS (use 0|1)" ;;
 esac
+case "$MEICA_RECLASSIFY_IMPLEMENTATION" in
+  spatial_tissue|standard|spatial_tissue_experimental) ;;
+  *) die "Invalid MEICA_RECLASSIFY_IMPLEMENTATION=$MEICA_RECLASSIFY_IMPLEMENTATION (use standard)" ;;
+esac
 case "$MEICA_CLASSIFIER_MODE" in
   nsi|legacy_template_rho|none) ;;
   tedana_rho) die "MEICA_CLASSIFIER_MODE=tedana_rho is deprecated. Use nsi or legacy_template_rho." ;;
@@ -154,6 +181,22 @@ case "$MEICA_QC_CIFTI_ENABLE" in
   0|1) ;;
   *) die "Invalid MEICA_QC_CIFTI_ENABLE=$MEICA_QC_CIFTI_ENABLE (use 0|1)" ;;
 esac
+case "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIES" in
+  0|1) ;;
+  *) die "Invalid MEICA_RECLASSIFY_SPATIAL_QC_MOVIES=$MEICA_RECLASSIFY_SPATIAL_QC_MOVIES (use 0|1)" ;;
+esac
+case "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MP4" in
+  0|1) ;;
+  *) die "Invalid MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MP4=$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MP4 (use 0|1)" ;;
+esac
+case "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_GIF" in
+  0|1) ;;
+  *) die "Invalid MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_GIF=$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_GIF (use 0|1)" ;;
+esac
+case "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_KEEP_SOURCE" in
+  0|1) ;;
+  *) die "Invalid MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_KEEP_SOURCE=$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_KEEP_SOURCE (use 0|1)" ;;
+esac
 case "$MEICA_NSI_GUARDRAIL_KAPPA_RHO" in
   0|1) ;;
   *) die "Invalid MEICA_NSI_GUARDRAIL_KAPPA_RHO=$MEICA_NSI_GUARDRAIL_KAPPA_RHO (use 0|1)" ;;
@@ -161,6 +204,10 @@ esac
 case "$MEICA_SKIP_TEDANA_IF_EXISTS" in
   0|1) ;;
   *) die "Invalid MEICA_SKIP_TEDANA_IF_EXISTS=$MEICA_SKIP_TEDANA_IF_EXISTS (use 0|1)" ;;
+esac
+case "$MEICA_TEDPCA_ZERO_COMPONENT_RETRY" in
+  0|1) ;;
+  *) die "Invalid MEICA_TEDPCA_ZERO_COMPONENT_RETRY=$MEICA_TEDPCA_ZERO_COMPONENT_RETRY (use 0|1)" ;;
 esac
 case "$MEICA_NSI_KILL_MODE" in
   adaptive|fixed) ;;
@@ -184,6 +231,14 @@ if [[ "$MEICA_RECLASSIFY_ENABLE" == "1" && "$MEICA_CLASSIFIER_MODE" == "nsi" ]];
     log "MEICA: NSI priors override -> $RESOLVED_PRIORS_MAT"
   fi
   MEICA_PRIORS_MAT="$RESOLVED_PRIORS_MAT"
+fi
+if [[ "$MEICA_RECLASSIFY_ENABLE" == "1" && ( "$MEICA_RECLASSIFY_IMPLEMENTATION" == "spatial_tissue" || "$MEICA_RECLASSIFY_IMPLEMENTATION" == "spatial_tissue_experimental" ) ]]; then
+  [[ -f "$MEICA_RECLASSIFY_SPATIAL_PY" ]] || die "Missing spatial+tissue MEICA reclassifier: $MEICA_RECLASSIFY_SPATIAL_PY"
+  [[ -n "$MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES" ]] || die "MEICA_RECLASSIFY_IMPLEMENTATION=spatial_tissue requires MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES"
+  [[ -f "$MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES" ]] || die "Missing MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES: $MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES"
+  if [[ -n "$MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE" && ! -f "$MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE" ]]; then
+    die "Missing MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE: $MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE"
+  fi
 fi
 
 resolve_tedana_bin() {
@@ -229,6 +284,68 @@ tedana_exec() {
       "$bin" "$@"
       ;;
   esac
+}
+
+tedana_zero_component_failure() {
+  local logfile="$1"
+  [[ -f "$logfile" ]] || return 1
+  rg -q "Selected 0 components|InvalidParameterError: .*n_components.*Got 0 instead" "$logfile"
+}
+
+run_tedana_with_retry() {
+  local rundir="$1"
+  shift
+  local -a args=( "$@" )
+  local tmp_log="$rundir/.tmp_tedana_exec.log"
+  local rc=0
+  set +e
+  tedana_exec "$TEDANA_BIN" "${args[@]}" > >(tee "$tmp_log") 2> >(tee -a "$tmp_log" >&2)
+  rc=$?
+  set -e
+  if [[ "$rc" -eq 0 ]]; then
+    rm -f "$tmp_log"
+    return 0
+  fi
+
+  if [[ "$MEICA_TEDPCA_ZERO_COMPONENT_RETRY" == "1" && \
+        ( "$MEPCA" == "kundu" || "$MEPCA" == "kundu-stabilize" ) && \
+        "$TEDANA_CLI_PROFILE" == "modern" && \
+        "$(tedana_zero_component_failure "$tmp_log"; echo $?)" == "0" ]]; then
+    local fallback="$MEICA_TEDPCA_ZERO_COMPONENT_FALLBACK"
+    local outdir_local=""
+    local i
+    for (( i=0; i<${#args[@]}; i++ )); do
+      if [[ "${args[i]}" == "--out-dir" && $(( i + 1 )) -lt ${#args[@]} ]]; then
+        outdir_local="${args[i+1]}"
+        break
+      fi
+    done
+    log "MEICA: tedana selected 0 PCA components for ${rundir#$Subdir/func/$FuncDirName/}; retrying with --tedpca $fallback"
+    if [[ -n "$outdir_local" ]]; then
+      rm -rf "$outdir_local"
+      mkdir -p "$outdir_local"
+    fi
+    local -a retry_args=()
+    local replaced=0
+    for (( i=0; i<${#args[@]}; i++ )); do
+      if [[ "${args[i]}" == "--tedpca" && $(( i + 1 )) -lt ${#args[@]} ]]; then
+        retry_args+=( --tedpca "$fallback" )
+        ((i++))
+        replaced=1
+        continue
+      fi
+      retry_args+=( "${args[i]}" )
+    done
+    if [[ "$replaced" -eq 0 ]]; then
+      retry_args+=( --tedpca "$fallback" )
+    fi
+    set +e
+    tedana_exec "$TEDANA_BIN" "${retry_args[@]}"
+    rc=$?
+    set -e
+  fi
+  rm -f "$tmp_log"
+  return "$rc"
 }
 
 detect_tedana_version() {
@@ -591,13 +708,74 @@ make_reclass_qc_ciftis() {
   fi
 }
 
+ensure_reclassify_cortical_ribbon_mask() {
+  local out="$Subdir/func/xfms/$FuncXfmsDir/CorticalRibbon_acpc_func_mask.nii.gz"
+  if [[ -f "$out" ]]; then
+    echo "$out"
+    return 0
+  fi
+
+  need_cmd flirt
+  need_cmd fslmaths
+  [[ -f "$AtlasTemplate" ]] || die "Missing AtlasTemplate required to build cortical ribbon mask: $AtlasTemplate"
+  [[ -f "$MEDIR/res0urces/ident.mat" ]] || die "Missing identity transform: $MEDIR/res0urces/ident.mat"
+  mkdir -p "$(dirname "$out")"
+
+  local ribbon_src="$Subdir/anat/T1w/CorticalRibbon.nii.gz"
+  if [[ ! -f "$ribbon_src" && -f "$Subdir/anat/T1w/CorticalRibbon.ni.gz" ]]; then
+    ribbon_src="$Subdir/anat/T1w/CorticalRibbon.ni.gz"
+  fi
+  if [[ ! -f "$ribbon_src" ]]; then
+    need_cmd mri_convert
+    local lh_ribbon="$Subdir/anat/T1w/$Subject/mri/lh.ribbon.mgz"
+    local rh_ribbon="$Subdir/anat/T1w/$Subject/mri/rh.ribbon.mgz"
+    local t1_like="$Subdir/anat/T1w/T1w_acpc_dc_restore.nii.gz"
+    [[ -f "$lh_ribbon" ]] || die "Missing FreeSurfer lh ribbon required for tissue reclassification: $lh_ribbon"
+    [[ -f "$rh_ribbon" ]] || die "Missing FreeSurfer rh ribbon required for tissue reclassification: $rh_ribbon"
+    [[ -f "$t1_like" ]] || die "Missing T1 ACPC reference required for tissue reclassification: $t1_like"
+    local tmp_lh="$Subdir/func/xfms/$FuncXfmsDir/.tmp_lh.ribbon.nii.gz"
+    local tmp_rh="$Subdir/func/xfms/$FuncXfmsDir/.tmp_rh.ribbon.nii.gz"
+    ribbon_src="$Subdir/func/xfms/$FuncXfmsDir/.tmp_CorticalRibbon_auto.nii.gz"
+    mri_convert -i "$lh_ribbon" -o "$tmp_lh" --like "$t1_like" >/dev/null 2>&1
+    mri_convert -i "$rh_ribbon" -o "$tmp_rh" --like "$t1_like" >/dev/null 2>&1
+    fslmaths "$tmp_lh" -add "$tmp_rh" "$ribbon_src"
+    fslmaths "$ribbon_src" -bin "$ribbon_src"
+    rm -f "$tmp_lh" "$tmp_rh"
+  fi
+
+  flirt -interp nearestneighbour -in "$ribbon_src" -ref "$AtlasTemplate" -out "$out" -applyxfm -init "$MEDIR/res0urces/ident.mat"
+  fslmaths "$out" -bin "$out"
+  rm -f "$Subdir/func/xfms/$FuncXfmsDir/.tmp_CorticalRibbon_auto.nii.gz"
+  [[ -f "$out" ]] || die "Failed to build cortical ribbon mask: $out"
+  echo "$out"
+}
+
+ensure_reclassify_subcortical_rois() {
+  local out="$Subdir/func/rois/Subcortical_ROIs_acpc.nii.gz"
+  if [[ -f "$out" ]]; then
+    echo "$out"
+    return 0
+  fi
+
+  [[ -f "$AtlasTemplate" ]] || die "Missing AtlasTemplate required to build subcortical ROIs: $AtlasTemplate"
+  [[ -f "$Subdir/anat/T1w/aparc+aseg.nii.gz" ]] || die "Missing FreeSurfer aparc+aseg required for tissue reclassification: $Subdir/anat/T1w/aparc+aseg.nii.gz"
+  [[ -f "$MEDIR/lib/make_precise_subcortical_labels.sh" ]] || die "Missing subcortical label builder: $MEDIR/lib/make_precise_subcortical_labels.sh"
+  "$MEDIR/lib/make_precise_subcortical_labels.sh" "$Subdir" "$AtlasTemplate" "$MEDIR"
+  [[ -f "$out" ]] || die "Failed to build subcortical ROI labels: $out"
+  echo "$out"
+}
+
 process_run() {
   local rundir="$1"
   local rel="${rundir#$Subdir/func/$FuncDirName/}"
   local outdir="$rundir/$MEICA_TEDANA_SUBDIR"
   local mask="$rundir/brain_mask.nii.gz"
   local tmp="$rundir/tmp.nii.gz"
-  local reclass_dir="$outdir/$MEICA_RECLASS_SUBDIR"
+  local reclass_subdir="$MEICA_RECLASS_SUBDIR"
+  if [[ "$MEICA_RECLASSIFY_IMPLEMENTATION" == "spatial_tissue" || "$MEICA_RECLASSIFY_IMPLEMENTATION" == "spatial_tissue_experimental" ]]; then
+    reclass_subdir="$MEICA_RECLASSIFY_SPATIAL_SUBDIR"
+  fi
+  local reclass_dir="$outdir/$reclass_subdir"
   cleanup_run_tmp() {
     rm -f "$mask" "$tmp"
   }
@@ -682,7 +860,7 @@ process_run() {
   if [[ "$MEICA_SKIP_TEDANA_IF_EXISTS" == "1" && "$has_tedana_outputs" == "1" ]]; then
     log "MEICA: skipping tedana execution for $rel (existing outputs detected)"
   else
-    tedana_exec "$TEDANA_BIN" "${TEDANA_ARGS[@]}"
+    run_tedana_with_retry "$rundir" "${TEDANA_ARGS[@]}"
   fi
 
   create_orig_aliases_from_modern "$outdir"
@@ -693,41 +871,101 @@ process_run() {
 
   local final_dir="$outdir"
   if [[ "$MEICA_RECLASSIFY_ENABLE" == "1" ]]; then
-    log "MEICA: auto-screen + reclassify $rel (mode=$MEICA_CLASSIFIER_MODE)"
+    log "MEICA: auto-screen + reclassify $rel (mode=$MEICA_CLASSIFIER_MODE implementation=$MEICA_RECLASSIFY_IMPLEMENTATION)"
     local -a AUTO_ARGS=()
-    AUTO_ARGS+=( --data-dir "$rundir" )
-    AUTO_ARGS+=( --tedana-dir "$outdir" )
-    AUTO_ARGS+=( --out-dir "$reclass_dir" )
-    AUTO_ARGS+=( --classifier-mode "$MEICA_CLASSIFIER_MODE" )
-    AUTO_ARGS+=( --rho-rescue "$MEICA_RHO_RESCUE" )
-    AUTO_ARGS+=( --rho-reject "$MEICA_RHO_REJECT" )
-    AUTO_ARGS+=( --rescue-nsi "$MEICA_NSI_RESCUE_THRESHOLD" )
-    AUTO_ARGS+=( --rescue-quantile "$MEICA_NSI_RESCUE_QUANTILE" )
-    AUTO_ARGS+=( --kill-mode "$MEICA_NSI_KILL_MODE" )
-    AUTO_ARGS+=( --kill-nsi "$MEICA_NSI_KILL_THRESHOLD" )
-    AUTO_ARGS+=( --kill-nsi-min "$MEICA_NSI_KILL_MIN" )
-    AUTO_ARGS+=( --kill-nsi-max "$MEICA_NSI_KILL_MAX" )
-    AUTO_ARGS+=( --kill-intercept "$MEICA_NSI_KILL_INTERCEPT" )
-    AUTO_ARGS+=( --kill-slope "$MEICA_NSI_KILL_SLOPE" )
-    AUTO_ARGS+=( --guardrail-kappa-rho "$MEICA_NSI_GUARDRAIL_KAPPA_RHO" )
-    AUTO_ARGS+=( --subcort-ratio-thresh "$MEICA_SUBCORT_RATIO_THRESH" )
-    AUTO_ARGS+=( --kill-priority-enable "$MEICA_KILL_PRIORITY_ENABLE" )
-    AUTO_ARGS+=( --kill-priority-w-logratio "$MEICA_KILL_PRIORITY_W_LOGRATIO" )
-    AUTO_ARGS+=( --kill-priority-w-nsi "$MEICA_KILL_PRIORITY_W_NSI" )
-    AUTO_ARGS+=( --kill-priority-w-var "$MEICA_KILL_PRIORITY_W_VAR" )
-    AUTO_ARGS+=( --kill-var-floor-quantile "$MEICA_KILL_VAR_FLOOR_QUANTILE" )
-    AUTO_ARGS+=( --kill-cumvar-cap "$MEICA_KILL_CUMVAR_CAP" )
-    if [[ -n "${MEICA_PRIORS_MAT:-}" ]]; then
-      AUTO_ARGS+=( --priors-mat "$MEICA_PRIORS_MAT" )
+    if [[ "$MEICA_RECLASSIFY_IMPLEMENTATION" == "spatial_tissue" || "$MEICA_RECLASSIFY_IMPLEMENTATION" == "spatial_tissue_experimental" ]]; then
+      AUTO_ARGS+=( --tedana-dir "$outdir" )
+      AUTO_ARGS+=( --out-dir "$reclass_dir" )
+      AUTO_ARGS+=( --training-features "$MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES" )
+      AUTO_ARGS+=( --spectral-kmax "$MEICA_RECLASSIFY_SPATIAL_SPECTRAL_KMAX" )
+      AUTO_ARGS+=( --rf-trees "$MEICA_RECLASSIFY_SPATIAL_RF_TREES" )
+      AUTO_ARGS+=( --kill-mode "$MEICA_NSI_KILL_MODE" )
+      AUTO_ARGS+=( --kill-nsi "$MEICA_NSI_KILL_THRESHOLD" )
+      AUTO_ARGS+=( --kill-nsi-min "$MEICA_NSI_KILL_MIN" )
+      AUTO_ARGS+=( --kill-nsi-max "$MEICA_NSI_KILL_MAX" )
+      AUTO_ARGS+=( --kill-intercept "$MEICA_NSI_KILL_INTERCEPT" )
+      AUTO_ARGS+=( --kill-slope "$MEICA_NSI_KILL_SLOPE" )
+      AUTO_ARGS+=( --rescue-nsi "$MEICA_NSI_RESCUE_THRESHOLD" )
+      AUTO_ARGS+=( --guardrail-kappa-rho "$MEICA_NSI_GUARDRAIL_KAPPA_RHO" )
+      AUTO_ARGS+=( --wm-kill-ratio "$MEICA_RECLASSIFY_SPATIAL_WM_KILL_RATIO" )
+      AUTO_ARGS+=( --subcort-protect-ratio "$MEICA_RECLASSIFY_SPATIAL_SUBCORT_PROTECT_RATIO" )
+      AUTO_ARGS+=( --cerebellum-protect-ratio "$MEICA_RECLASSIFY_SPATIAL_CEREBELLUM_PROTECT_RATIO" )
+      AUTO_ARGS+=( --qc-movies "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIES" )
+      AUTO_ARGS+=( --qc-movie-classes "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_CLASSES" )
+      AUTO_ARGS+=( --qc-movie-max-components "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MAX_COMPONENTS" )
+      AUTO_ARGS+=( --qc-movie-fps "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FPS" )
+      AUTO_ARGS+=( --qc-movie-mp4 "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_MP4" )
+      AUTO_ARGS+=( --qc-movie-gif "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_GIF" )
+      AUTO_ARGS+=( --qc-movie-target-size-mb "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_TARGET_SIZE_MB" )
+      AUTO_ARGS+=( --qc-movie-keep-source-movie "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_KEEP_SOURCE" )
+      AUTO_ARGS+=( --ffmpeg-bin "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFMPEG" )
+      AUTO_ARGS+=( --ffprobe-bin "$MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFPROBE" )
+      AUTO_ARGS+=( --copy-key-files )
+      if [[ -n "${MEICA_PRIORS_MAT:-}" ]]; then
+        AUTO_ARGS+=( --priors-mat "$MEICA_PRIORS_MAT" )
+      fi
+      if [[ -n "$MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE" ]]; then
+        AUTO_ARGS+=( --neighbor-table "$MEICA_RECLASSIFY_SPATIAL_NEIGHBOR_TABLE" )
+      fi
+      local component_nii="$outdir/betas_OC.nii.gz"
+      local aseg_nii="$Subdir/anat/T1w/aparc+aseg.nii.gz"
+      [[ -f "$component_nii" ]] || die "MEICA reclassifier requires volumetric component maps: $component_nii"
+      [[ -f "$aseg_nii" ]] || die "MEICA reclassifier requires FreeSurfer aparc+aseg: $aseg_nii"
+      local cortical_ribbon
+      local subcortical_rois
+      cortical_ribbon="$(ensure_reclassify_cortical_ribbon_mask)"
+      subcortical_rois="$(ensure_reclassify_subcortical_rois)"
+      AUTO_ARGS+=( --component-nii "$component_nii" )
+      if [[ -f "$Subdir/func/xfms/$FuncXfmsDir/T1w_acpc_func.nii.gz" ]]; then
+        AUTO_ARGS+=( --anat-bg "$Subdir/func/xfms/$FuncXfmsDir/T1w_acpc_func.nii.gz" )
+      elif [[ -f "$Subdir/func/xfms/$FuncXfmsDir/T1w_acpc_brain_func.nii.gz" ]]; then
+        AUTO_ARGS+=( --anat-bg "$Subdir/func/xfms/$FuncXfmsDir/T1w_acpc_brain_func.nii.gz" )
+      fi
+      if [[ -f "$rundir/TR.txt" ]]; then
+        AUTO_ARGS+=( --tr-file "$rundir/TR.txt" )
+      fi
+      if [[ -f "$rundir/MCF.par" ]]; then
+        AUTO_ARGS+=( --motion-params "$rundir/MCF.par" )
+      fi
+      AUTO_ARGS+=( --aseg "$aseg_nii" )
+      AUTO_ARGS+=( --cortical-ribbon "$cortical_ribbon" )
+      AUTO_ARGS+=( --subcortical-rois "$subcortical_rois" )
+      "$MEICA_PYTHON" "$MEICA_RECLASSIFY_SPATIAL_PY" "${AUTO_ARGS[@]}"
+    else
+      AUTO_ARGS+=( --data-dir "$rundir" )
+      AUTO_ARGS+=( --tedana-dir "$outdir" )
+      AUTO_ARGS+=( --out-dir "$reclass_dir" )
+      AUTO_ARGS+=( --classifier-mode "$MEICA_CLASSIFIER_MODE" )
+      AUTO_ARGS+=( --rho-rescue "$MEICA_RHO_RESCUE" )
+      AUTO_ARGS+=( --rho-reject "$MEICA_RHO_REJECT" )
+      AUTO_ARGS+=( --rescue-nsi "$MEICA_NSI_RESCUE_THRESHOLD" )
+      AUTO_ARGS+=( --rescue-quantile "$MEICA_NSI_RESCUE_QUANTILE" )
+      AUTO_ARGS+=( --kill-mode "$MEICA_NSI_KILL_MODE" )
+      AUTO_ARGS+=( --kill-nsi "$MEICA_NSI_KILL_THRESHOLD" )
+      AUTO_ARGS+=( --kill-nsi-min "$MEICA_NSI_KILL_MIN" )
+      AUTO_ARGS+=( --kill-nsi-max "$MEICA_NSI_KILL_MAX" )
+      AUTO_ARGS+=( --kill-intercept "$MEICA_NSI_KILL_INTERCEPT" )
+      AUTO_ARGS+=( --kill-slope "$MEICA_NSI_KILL_SLOPE" )
+      AUTO_ARGS+=( --guardrail-kappa-rho "$MEICA_NSI_GUARDRAIL_KAPPA_RHO" )
+      AUTO_ARGS+=( --subcort-ratio-thresh "$MEICA_SUBCORT_RATIO_THRESH" )
+      AUTO_ARGS+=( --kill-priority-enable "$MEICA_KILL_PRIORITY_ENABLE" )
+      AUTO_ARGS+=( --kill-priority-w-logratio "$MEICA_KILL_PRIORITY_W_LOGRATIO" )
+      AUTO_ARGS+=( --kill-priority-w-nsi "$MEICA_KILL_PRIORITY_W_NSI" )
+      AUTO_ARGS+=( --kill-priority-w-var "$MEICA_KILL_PRIORITY_W_VAR" )
+      AUTO_ARGS+=( --kill-var-floor-quantile "$MEICA_KILL_VAR_FLOOR_QUANTILE" )
+      AUTO_ARGS+=( --kill-cumvar-cap "$MEICA_KILL_CUMVAR_CAP" )
+      if [[ -n "${MEICA_PRIORS_MAT:-}" ]]; then
+        AUTO_ARGS+=( --priors-mat "$MEICA_PRIORS_MAT" )
+      fi
+      local betas_cifti="${MEICA_BETAS_CIFTI:-}"
+      if [[ -z "$betas_cifti" && -f "$outdir/betas_OC.dtseries.nii" ]]; then
+        betas_cifti="$outdir/betas_OC.dtseries.nii"
+      fi
+      if [[ -n "$betas_cifti" ]]; then
+        AUTO_ARGS+=( --betas-cifti "$betas_cifti" )
+      fi
+      "$MEICA_PYTHON" "$MEICA_RECLASSIFY_PY" "${AUTO_ARGS[@]}"
     fi
-    local betas_cifti="${MEICA_BETAS_CIFTI:-}"
-    if [[ -z "$betas_cifti" && -f "$outdir/betas_OC.dtseries.nii" ]]; then
-      betas_cifti="$outdir/betas_OC.dtseries.nii"
-    fi
-    if [[ -n "$betas_cifti" ]]; then
-      AUTO_ARGS+=( --betas-cifti "$betas_cifti" )
-    fi
-    "$MEICA_PYTHON" "$MEICA_RECLASSIFY_PY" "${AUTO_ARGS[@]}"
 
     local acc="$reclass_dir/AcceptedComponents.txt"
     local rej="$reclass_dir/RejectedComponents.txt"

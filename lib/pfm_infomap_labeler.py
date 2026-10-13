@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -294,6 +296,267 @@ def write_optional_xlsx(csv_path: Path, xlsx_path: Path) -> None:
         width = min(max(len(str(cell.value or "")) for cell in col) + 2, 48)
         ws.column_dimensions[col[0].column_letter].width = width
     wb.save(xlsx_path)
+
+
+def infer_subject_from_surface(path_text: str) -> str:
+    if not path_text:
+        return ""
+    name = Path(path_text).name
+    for marker in (".L.", ".R."):
+        if marker in name:
+            return name.split(marker, 1)[0]
+    return ""
+
+
+def relpath_or_name(path: Path, start: Path) -> str:
+    try:
+        return os.path.relpath(str(path), str(start))
+    except ValueError:
+        return path.name
+
+
+def default_review_scene_template(args: argparse.Namespace) -> Path | None:
+    candidates = []
+    if getattr(args, "review_scene_template", ""):
+        candidates.append(Path(args.review_scene_template))
+    env_template = os.environ.get("PFM_INFOMAP_REVIEW_SCENE_TEMPLATE", "")
+    if env_template:
+        candidates.append(Path(env_template))
+    candidates.append(
+        Path(__file__).resolve().parents[1]
+        / "res0urces"
+        / "InfomapReviewScene"
+        / "Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualReview.template.scene"
+    )
+    home = os.environ.get("HOME", "")
+    if home:
+        candidates.append(Path(home) / "Desktop" / "HC05_manual_labeling.scene")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def rewrite_review_scene_template(
+    text: str,
+    *,
+    subject: str,
+    scene_name: str,
+    density_outdir: Path,
+    left_surf: str,
+    right_surf: str,
+) -> str:
+    review_prefix = "Bipartite_PhysicalCommunities+AlgorithmicLabeling"
+    community_fc_dtseries = f"{review_prefix}_FC_WholeBrain.dtseries.nii"
+    replacements = {
+        "__SCENE_NAME__": scene_name,
+        "__SUBJECT__": subject,
+        "HC05_manual_labeling": scene_name,
+        "Bipartite_PhysicalCommunities+AlgorithmicLabeling_InfoMapCommunities_FC_Priors.dtseries.nii": community_fc_dtseries,
+        "Bipartite_PhysicalCommunities+AlgorithmicLabeling_InfoMapCommunities_FC_Priors.dynconn.nii": community_fc_dtseries,
+        "../../../../../../../outputs/data/Priors/Priors_FC.dtseries.nii": community_fc_dtseries,
+        "../../../../../../../outputs/data/Priors/Priors_FC.dynconn.nii": community_fc_dtseries,
+        f"{review_prefix}_FC_WholeBrain.dynconn.nii": community_fc_dtseries,
+        f"{review_prefix}_FC_btwn_InfoMapCommunities.dynconn.nii": f"{review_prefix}_FC_btwn_InfoMapCommunities.dtseries.nii",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = retarget_review_scene_primary_overlays(
+        text,
+        [
+            f"{review_prefix}.dlabel.nii",
+            f"{review_prefix}_InfoMapCommunities.dlabel.nii",
+            community_fc_dtseries,
+            f"{review_prefix}_FC_btwn_InfoMapCommunities.dtseries.nii",
+        ],
+    )
+
+    left_path = Path(left_surf) if left_surf else None
+    right_path = Path(right_surf) if right_surf else None
+    surf_dir = left_path.parent if left_path else right_path.parent if right_path else None
+    if subject and surf_dir is not None:
+        for hemi, source_path in (("L", left_path), ("R", right_path)):
+            for surf in ("inflated", "very_inflated"):
+                basename = f"{subject}.{hemi}.{surf}.32k_fs_LR.surf.gii"
+                rel = relpath_or_name(surf_dir / basename, density_outdir)
+                text = text.replace(f"HC05.{hemi}.{surf}.32k_fs_LR.surf.gii", basename)
+                text = text.replace(f"../../../../anat/T1w/fsaverage_LR32k/{basename}", rel)
+                text = text.replace(f"../../../../anat/T1w/fsaverage_LR32k/HC05.{hemi}.{surf}.32k_fs_LR.surf.gii", rel)
+    if subject:
+        text = text.replace("HC05", subject)
+    return text
+
+
+def retarget_review_scene_primary_overlays(text: str, panel_files: Sequence[str]) -> str:
+    """Set the four tiled review panels' primary overlays left-to-right."""
+    if not panel_files:
+        return text
+
+    overlay_re = re.compile(
+        r'(<Object Type="class" Class="Overlay" Name="m_overlays" Version="1">'
+        r'(?:(?!<Object Type="class" Class="Overlay" Name="m_overlays" Version="1">).)*?'
+        r'<Object Type="boolean" Name="m_enabled">true</Object>'
+        r'(?:(?!<Object Type="class" Class="Overlay" Name="m_overlays" Version="1">).)*?'
+        r'<Object Type="pathName" Name="selectedMapFileNameWithPath">)([^<]*)'
+        r'(</Object>.*?<Object Type="string" Name="selectedMapFile">)([^<]*)'
+        r'(</Object>.*?<Object Type="string" Name="selectedMapName">)([^<]*)'
+        r'(</Object>.*?<Object Type="integer" Name="selectedMapIndex">)([^<]*)'
+        r'(</Object>)',
+        re.DOTALL,
+    )
+
+    counter = 0
+
+    def replace(match: re.Match) -> str:
+        nonlocal counter
+        selected = panel_files[counter % len(panel_files)]
+        counter += 1
+        return (
+            match.group(1)
+            + selected
+            + match.group(3)
+            + selected
+            + match.group(5)
+            + ""
+            + match.group(7)
+            + "0"
+            + match.group(9)
+        )
+
+    return overlay_re.sub(replace, text)
+
+
+def border_caret_data_file_xml(index: int, filename: str) -> str:
+    return f"""                                <Element Index="{index}">
+                                    <Object Type="class" Class="CaretDataFile" Name="{filename}" Version="1">
+                                        <Object Type="pathName" Name="dataFileName_V2">{filename}</Object>
+                                    </Object>
+                                </Element>
+"""
+
+
+def border_spec_file_xml(index: int, filename: str, structure: str) -> str:
+    return f"""                                    <Element Index="{index}">
+                                        <Object Type="class" Class="SpecFileDataFile" Name="specFileDataFile" Version="1">
+                                            <Object Type="enumeratedType" Name="dataFileType">BORDER</Object>
+                                            <Object Type="enumeratedType" Name="structure">{structure}</Object>
+                                            <Object Type="pathName" Name="fileName">{filename}</Object>
+                                            <Object Type="boolean" Name="selected">true</Object>
+                                        </Object>
+                                    </Element>
+"""
+
+
+def add_review_scene_border_files(text: str, border_files: Sequence[Tuple[str, str]]) -> str:
+    """Load left/right border files and display them across review tabs."""
+    existing = {name for name, _ in border_files if name in text}
+    to_add = [(name, structure) for name, structure in border_files if name not in existing]
+
+    if to_add:
+        caret_re = re.compile(
+            r'(<ObjectArray Type="class" Name="allCaretDataFiles_V2" Length=")(\d+)(">)',
+            re.DOTALL,
+        )
+        caret_match = caret_re.search(text)
+        if caret_match:
+            old_len = int(caret_match.group(2))
+            text = text[: caret_match.start(2)] + str(old_len + len(to_add)) + text[caret_match.end(2) :]
+            insert_marker = '                            </ObjectArray>\n                            <Object Type="class" Class="SpecFile"'
+            insert = "".join(border_caret_data_file_xml(old_len + i, name) for i, (name, _) in enumerate(to_add))
+            text = text.replace(insert_marker, insert + insert_marker, 1)
+
+        spec_re = re.compile(
+            r'(<ObjectArray Type="class" Name="dataFilesArray" Length=")(\d+)(">)',
+            re.DOTALL,
+        )
+        spec_match = spec_re.search(text)
+        if spec_match:
+            old_len = int(spec_match.group(2))
+            text = text[: spec_match.start(2)] + str(old_len + len(to_add)) + text[spec_match.end(2) :]
+            insert_marker = '                                </ObjectArray>\n                            </Object>\n                            <Object Type="class" Class="CaretDataFile" Name="m_sceneAnnotationFile"'
+            insert = "".join(
+                border_spec_file_xml(old_len + i, name, structure)
+                for i, (name, structure) in enumerate(to_add)
+            )
+            text = text.replace(insert_marker, insert + insert_marker, 1)
+
+    border_re = re.compile(
+        r'(<Object Type="class" Class="DisplayPropertiesBorders" Name="displayPropertiesBorders" Version="1">.*?</Object>)',
+        re.DOTALL,
+    )
+
+    def enable_border_block(match: re.Match) -> str:
+        block = match.group(1)
+        for name in ("m_displayStatusInTab", "m_displayStatusInDisplayGroup"):
+            block = re.sub(
+                rf'(<(?:ObjectMap|ObjectArray) Type="boolean" Name="{name}"[^>]*>.*?</(?:ObjectMap|ObjectArray)>)',
+                lambda m: re.sub(r'(>)(false)(<)', r'\1true\3', m.group(1)),
+                block,
+                flags=re.DOTALL,
+            )
+        for name, value in (
+            ("m_coloringTypeInTab", "FEATURE_COLORING_TYPE_STANDARD_COLOR"),
+            ("m_coloringTypeInDisplayGroup", "FEATURE_COLORING_TYPE_STANDARD_COLOR"),
+            ("m_drawingTypeInTab", "DRAW_AS_LINES"),
+            ("m_drawingTypeInDisplayGroup", "DRAW_AS_LINES"),
+            ("m_standardColorTypeInTab", "BLACK"),
+            ("m_standardColorTypeInDisplayGroup", "BLACK"),
+        ):
+            block = re.sub(
+                rf'(<(?:ObjectMap|ObjectArray) Type="enumeratedType" Name="{name}"[^>]*>.*?</(?:ObjectMap|ObjectArray)>)',
+                lambda m: re.sub(
+                    r'(<(?:Value|Element)\b[^>]*>)[^<]*(</(?:Value|Element)>)',
+                    lambda item: item.group(1) + value + item.group(2),
+                    m.group(1),
+                ),
+                block,
+                flags=re.DOTALL,
+            )
+        return block
+
+    return border_re.sub(enable_border_block, text, count=1)
+
+
+def write_review_scene(density_outdir: Path, density_tag: str, args: argparse.Namespace) -> None:
+    if int(getattr(args, "write_review_scenes", 1)) != 1:
+        return
+    template = default_review_scene_template(args)
+    if template is None:
+        print("[infomap_labeler] review scene template not found; skipping ManualReview.scene")
+        return
+
+    review_prefix = "Bipartite_PhysicalCommunities+AlgorithmicLabeling"
+    border_files = [
+        (f"{review_prefix}.L.border", "CORTEX_LEFT"),
+        (f"{review_prefix}.R.border", "CORTEX_RIGHT"),
+    ]
+    required = [
+        density_outdir / f"{review_prefix}.dlabel.nii",
+        density_outdir / f"{review_prefix}_InfoMapCommunities.dlabel.nii",
+        density_outdir / f"{review_prefix}_FC_WholeBrain.dtseries.nii",
+        density_outdir / f"{review_prefix}_FC_btwn_InfoMapCommunities.dtseries.nii",
+    ]
+    missing = [str(path) for path in required if not path.exists()]
+    if missing:
+        print("[infomap_labeler] review scene inputs missing; skipping ManualReview.scene: " + ", ".join(missing))
+        return
+
+    subject = getattr(args, "review_scene_subject", "") or infer_subject_from_surface(getattr(args, "left_surf", ""))
+    scene_name = f"{subject}_{density_tag}_manual_labeling" if subject else f"{density_tag}_manual_labeling"
+    text = template.read_text(encoding="utf-8", errors="surrogateescape")
+    text = rewrite_review_scene_template(
+        text,
+        subject=subject,
+        scene_name=scene_name,
+        density_outdir=density_outdir,
+        left_surf=getattr(args, "left_surf", ""),
+        right_surf=getattr(args, "right_surf", ""),
+    )
+    text = add_review_scene_border_files(text, border_files)
+    out_name = getattr(args, "review_scene_outfile", "") or f"{review_prefix}_ManualReview.scene"
+    out_path = density_outdir / out_name
+    out_path.write_text(text, encoding="utf-8", errors="surrogateescape")
+    print(f"[infomap_labeler] wrote {out_path}")
 
 
 def write_manual_correction_sheet(
@@ -806,6 +1069,13 @@ def density_label(
     review_prefix = "Bipartite_PhysicalCommunities+AlgorithmicLabeling"
     review_dlabel = density_outdir / f"{review_prefix}.dlabel.nii"
     import_dlabel(args.wb_command, ref_img, label_map, label_list, review_dlabel, density_outdir / f"Tmp_{review_prefix}")
+    write_borders(
+        args.wb_command,
+        review_dlabel,
+        args.left_surf,
+        args.right_surf,
+        density_outdir / review_prefix,
+    )
 
     per_comm_label = np.zeros((community_ids.size, n_gray), dtype=np.float32)
     for i, cid in enumerate(community_ids):
@@ -822,10 +1092,8 @@ def density_label(
 
     if int(args.write_community_fc) == 1:
         fc_maps = compute_community_fc_maps(data_tg, metrics["comm_ts"], int(args.fc_chunk_rows))
-        fc_names = [f"Community_{int(cid)}" for cid in community_ids]
-        fc_path = density_outdir / f"{prefix}_{dens_tag}_FC.dscalar.nii"
-        save_dscalar(ref_img, fc_maps, fc_names, fc_path)
-        save_dtseries(ref_img, fc_maps, density_outdir / f"{review_prefix}_FC_WholeBrain.dtseries.nii")
+        fc_path = density_outdir / f"{review_prefix}_FC_WholeBrain.dtseries.nii"
+        save_dtseries(ref_img, fc_maps, fc_path)
         fc_between_maps = np.zeros((community_ids.size, n_gray), dtype=np.float32)
         for i, cid in enumerate(community_ids):
             for target_cid in community_ids:
@@ -836,11 +1104,11 @@ def density_label(
             ref_img,
             fc_between_maps,
             density_outdir / f"{review_prefix}_FC_btwn_InfoMapCommunities.dtseries.nii",
-        )
+                )
         print(f"[infomap_labeler] wrote {fc_path}")
-        print(f"[infomap_labeler] wrote {density_outdir / f'{review_prefix}_FC_WholeBrain.dtseries.nii'}")
         print(f"[infomap_labeler] wrote {density_outdir / f'{review_prefix}_FC_btwn_InfoMapCommunities.dtseries.nii'}")
     write_manual_correction_sheet(density_outdir, review_prefix, rows, labels, int(args.unassigned_value))
+    write_review_scene(density_outdir, dens_tag, args)
     if wrote_dlabel:
         print(f"[infomap_labeler] wrote {dlabel}")
     return label_map, rows
@@ -939,6 +1207,10 @@ def main() -> int:
     ap.add_argument("--left-surf", default="")
     ap.add_argument("--right-surf", default="")
     ap.add_argument("--wb-command", default="wb_command")
+    ap.add_argument("--write-review-scenes", type=bool_int, default=1)
+    ap.add_argument("--review-scene-template", default="")
+    ap.add_argument("--review-scene-subject", default="")
+    ap.add_argument("--review-scene-outfile", default="Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualReview.scene")
     args = ap.parse_args()
 
     outdir = Path(args.outdir)

@@ -70,8 +70,102 @@ def symlink_or_copy(src: Path, dst: Path, mode: str, overwrite: bool) -> None:
         shutil.copy2(src, dst)
 
 
+def write_json_copy(src: Path, dst: Path, updates: dict, overwrite: bool) -> None:
+    if dst.exists() or dst.is_symlink():
+        if not overwrite:
+            raise ImportErrorAbort(f"Refusing to overwrite existing file: {dst}")
+        if dst.is_dir():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    data = read_json(src)
+    data.update(updates)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+
+
 def sidecar_json_for_nii(nii: Path) -> Path:
     return nii.with_name(nii.name[:-7] + ".json")
+
+
+def read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {}
+
+
+def save_trailing_noise_series(
+    src_nii: Path,
+    src_json: Path,
+    main_dst_nii: Path,
+    target_vols: Optional[int],
+    noise_volume_last: int,
+    overwrite: bool,
+) -> Optional[Path]:
+    if int(noise_volume_last) <= 0 or target_vols is None:
+        return None
+    dst_dir = main_dst_nii.parent / "ImportProvenance" / "NoRFVolumes"
+    dst_nii = dst_dir / f"{main_dst_nii.name[:-7]}_noRF.nii.gz"
+    dst_json = sidecar_json_for_nii(dst_nii)
+    extract_nifti_volumes(src_nii, dst_nii, int(target_vols), int(noise_volume_last), overwrite, "trailing no-RF/noise volume extraction")
+    write_json_copy(
+        src_json,
+        dst_json,
+        {
+            "PipelineProvenanceOnly": True,
+            "PipelineNoRFVolumes": True,
+            "PipelineNoRFVolumeStart": int(target_vols),
+            "PipelineNoRFVolumeCount": int(noise_volume_last),
+            "PipelineNoRFSourceFile": str(src_nii),
+        },
+        overwrite,
+    )
+    return dst_nii
+
+
+def is_nordic_metadata(meta: dict) -> bool:
+    denoising = str(meta.get("Denoising", "")).strip().lower()
+    if denoising == "nordic":
+        return True
+    return any(str(k).startswith("NORDIC") for k in meta.keys())
+
+
+def write_nordic_marker(run_dir: Path, rows: List[Tuple[int, Path, dict]]) -> None:
+    if not rows:
+        return
+    marker = run_dir / "NORDIC_DENOISING.txt"
+    used_phase = any(bool(meta.get("NORDICUsedPhase", False)) for _, _, meta in rows)
+    explicit_mag_only = any(meta.get("NORDICUsedPhase") is False for _, _, meta in rows)
+    noise_last = max(int(meta.get("NORDICNoiseVolumeLast", 0) or 0) for _, _, meta in rows)
+    if used_phase:
+        mode = "magnitude+phase"
+    elif explicit_mag_only:
+        mode = "magnitude-only"
+    else:
+        mode = "unknown"
+
+    lines = [
+        "NORDIC denoising: yes",
+        f"Mode: {mode}",
+        "Used magnitude: yes",
+        f"Used phase: {'yes' if used_phase else ('no' if explicit_mag_only else 'unknown')}",
+        f"Trailing no-RF/noise volumes present in source: {'yes' if noise_last > 0 else 'no'}",
+        f"Trailing no-RF/noise volumes excised from main run: {max(int(meta.get('NORDICTrailingNoRFVolumesExcised', 0) or 0) for _, _, meta in rows)}",
+        f"No-RF/noise volumes used by NORDIC: {'yes' if noise_last > 0 else 'no'}",
+        f"Trailing no-RF/noise volumes used by NORDIC: {noise_last}",
+        "",
+        "Echo outputs:",
+    ]
+    for echo, dst, meta in rows:
+        lines.append(f"  E{echo}: {dst}")
+        src_mag = meta.get("NORDICSourceMagnitude", "")
+        src_phase = meta.get("NORDICSourcePhase", "")
+        if src_mag:
+            lines.append(f"    source magnitude: {src_mag}")
+        if src_phase:
+            lines.append(f"    source phase: {src_phase}")
+    marker.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def iter_bids_nii(subdir: Path) -> Iterable[Path]:
@@ -200,6 +294,7 @@ def import_func(
     mode: str,
     overwrite: bool,
     echo_dim4_policy: str,
+    expect_task_volumes: int,
     warnings: List[str],
 ) -> Tuple[int, int]:
     ses_map, run_map, grouped = map_sessions_and_runs(func_files, task, warnings)
@@ -212,15 +307,30 @@ def import_func(
         r = run_map[(ses_lbl, rkey)]
         run_dir = out_root / f"session_{s}" / f"run_{r}"
         run_dir.mkdir(parents=True, exist_ok=True)
+        nordic_rows: List[Tuple[int, Path, dict]] = []
 
         entry_sorted = sorted(entries, key=lambda t: t[0])
         vols_by_echo = [(echo, src, ent, parse_nifti_volumes(src)) for echo, src, ent in entry_sorted]
-        run_vols = sorted({v for _, _, _, v in vols_by_echo})
-        target_vols = None
-        if len(run_vols) > 1:
-            detail = ", ".join(f"E{echo}={v}" for echo, _, _, v in vols_by_echo)
+        target_by_echo: Dict[int, Optional[int]] = {}
+        noise_last_by_echo: Dict[int, int] = {}
+        for echo, _, _, v in vols_by_echo:
+            target_by_echo[echo] = None
+            noise_last_by_echo[echo] = 0
+            if expect_task_volumes > 0:
+                if v < expect_task_volumes:
+                    raise ImportErrorAbort(f"task-{task} expected at least {expect_task_volumes} volumes, found E{echo}={v} in ses={ses_lbl} run={rkey}.")
+                if v > expect_task_volumes:
+                    target_by_echo[echo] = expect_task_volumes
+                    noise_last_by_echo[echo] = int(v) - int(expect_task_volumes)
+
+        effective_vols = sorted({int(target_by_echo[echo] or v) for echo, _, _, v in vols_by_echo})
+        if len(effective_vols) > 1:
+            detail = ", ".join(f"E{echo}={int(target_by_echo[echo] or v)}" for echo, _, _, v in vols_by_echo)
             if echo_dim4_policy == "truncate_to_min":
-                target_vols = int(min(run_vols))
+                target_vols = int(min(effective_vols))
+                for echo, _, _, v in vols_by_echo:
+                    if target_by_echo[echo] is None or int(target_by_echo[echo]) > target_vols:
+                        target_by_echo[echo] = target_vols
                 warnings.append(
                     f"Echo dim4 mismatch in ses={ses_lbl} run={rkey} ({detail}); truncating all echoes to min={target_vols}."
                 )
@@ -232,6 +342,7 @@ def import_func(
 
         for echo, src, _, v in vols_by_echo:
             dst = run_dir / f"{func_prefix}_S{s}_R{r}_E{echo}.nii.gz"
+            target_vols = target_by_echo[echo]
             if target_vols is not None and v > target_vols:
                 truncate_nifti(src, dst, target_vols, overwrite)
             else:
@@ -239,10 +350,32 @@ def import_func(
             copied_nii += 1
             js = sidecar_json_for_nii(src)
             if js.exists():
-                symlink_or_copy(js, run_dir / f"{func_prefix}_S{s}_R{r}_E{echo}.json", mode, overwrite)
+                meta = read_json(js)
+                dst_json = run_dir / f"{func_prefix}_S{s}_R{r}_E{echo}.json"
+                if int(noise_last_by_echo[echo]) > 0:
+                    write_json_copy(
+                        js,
+                        dst_json,
+                        {
+                            "PipelineTrailingNoRFVolumesExcised": int(noise_last_by_echo[echo]),
+                            "PipelineTrailingNoRFVolumeStart": int(target_vols or 0),
+                        },
+                        overwrite,
+                    )
+                else:
+                    symlink_or_copy(js, dst_json, mode, overwrite)
                 copied_json += 1
+                no_rf_dst = save_trailing_noise_series(src, js, dst, target_vols, noise_last_by_echo[echo], overwrite)
+                if no_rf_dst is not None:
+                    warnings.append(f"Saved trailing no-RF/noise volumes for provenance only: {no_rf_dst}")
+                if is_nordic_metadata(meta):
+                    if int(noise_last_by_echo[echo]) > 0:
+                        meta = dict(meta)
+                        meta["NORDICTrailingNoRFVolumesExcised"] = int(noise_last_by_echo[echo])
+                    nordic_rows.append((echo, dst, meta))
             else:
                 warnings.append(f"Missing JSON sidecar for bold file: {src}")
+        write_nordic_marker(run_dir, nordic_rows)
 
     return copied_nii, copied_json
 
@@ -292,6 +425,10 @@ def parse_nifti_volumes(path: Path) -> int:
 
 
 def truncate_nifti(src: Path, dst: Path, target_vols: int, overwrite: bool) -> None:
+    extract_nifti_volumes(src, dst, 0, int(target_vols), overwrite, "echo dim4 truncation")
+
+
+def extract_nifti_volumes(src: Path, dst: Path, start: int, count: int, overwrite: bool, label: str) -> None:
     if dst.exists() or dst.is_symlink():
         if not overwrite:
             raise ImportErrorAbort(f"Refusing to overwrite existing file: {dst}")
@@ -301,11 +438,11 @@ def truncate_nifti(src: Path, dst: Path, target_vols: int, overwrite: bool) -> N
             dst.unlink()
     dst.parent.mkdir(parents=True, exist_ok=True)
     if shutil.which("fslroi") is None:
-        raise ImportErrorAbort("echo dim4 truncation requested but fslroi is not available on PATH")
-    cmd = ["fslroi", str(src), str(dst), "0", str(int(target_vols))]
+        raise ImportErrorAbort(f"{label} requested but fslroi is not available on PATH")
+    cmd = ["fslroi", str(src), str(dst), str(int(start)), str(int(count))]
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if proc.returncode != 0:
-        raise ImportErrorAbort(f"fslroi failed (exit {proc.returncode}) for {src}: {proc.stdout}")
+        raise ImportErrorAbort(f"fslroi {label} failed (exit {proc.returncode}) for {src}: {proc.stdout}")
 
 
 def import_fmaps(
@@ -415,6 +552,12 @@ def main() -> int:
     ap.add_argument("--mode", choices=["symlink", "copy"], default="symlink", help="Import mode (default: symlink)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite existing destination files")
     ap.add_argument("--echo-dim4-policy", choices=["abort", "truncate_to_min"], default="abort", help="Per-run echo dim4 mismatch handling")
+    ap.add_argument(
+        "--expect-task-volumes",
+        type=int,
+        default=int(os.environ.get("IMPORT_EXPECT_TASK_VOLUMES", os.environ.get("IMPORT_EXPECT_REST_VOLUMES", "0"))),
+        help="Expected retained BOLD volumes per run; extra trailing volumes are saved under ImportProvenance/NoRFVolumes and removed from the main run.",
+    )
     args = ap.parse_args()
 
     bids_root = Path(args.bids_root).resolve()
@@ -442,6 +585,7 @@ def main() -> int:
             args.mode,
             args.overwrite,
             args.echo_dim4_policy,
+            args.expect_task_volumes,
             warnings,
         )
         ap_n, pa_n = import_fmaps(

@@ -1,0 +1,103 @@
+{
+  "publication_status": "local review; multi-visit example refreshed 2026-10-13; participant-derived figures require maintainer sharing-permission review",
+  "source_data_modified": false,
+  "new_fmri_processing_or_fem_simulations": false,
+  "assets": [
+    {
+      "file": "qc-coreg-bbr.png",
+      "kind": "unchanged production reportlet",
+      "description": "One run: corrected SBRef with anatomical outlines.",
+      "sha256": "37bd1cc08ebc0921ef4febd17808d1bc4b21184e52d5b533b9ee56845e94f1ad"
+    },
+    {
+      "file": "qc-sdc-flicker.gif",
+      "kind": "unchanged production reportlet",
+      "description": "Original SDC flicker reportlet.",
+      "sha256": "c61a6412a5f8b5cc1bae1788130ba79ceb68c10e964c15e9c9914458fca6ea8c"
+    },
+    {
+      "file": "qc-nsi-usability.png",
+      "kind": "unchanged production reportlet",
+      "description": "Model-estimated PFM usability; not observed scan reliability.",
+      "sha256": "41d87d5efeecf4c19138ba01d182510d78ccc845ba87f6b7f3f3a56b8a3fe75b"
+    },
+    {
+      "file": "qc-nsi-networks.png",
+      "kind": "unchanged production reportlet",
+      "description": "NSI distributions by network.",
+      "sha256": "ed58d6ca586893f69889ef36ff2c83724053602841598e73a88f8d26154abf4e"
+    },
+    {
+      "file": "qc-motion-coupling.png",
+      "kind": "unchanged production reportlet",
+      "description": "Motion censoring and coupling across 26 runs in 13 sessions.",
+      "sha256": "39c98ae53cee041e050254d36f7ed3e6abf29c2299e8010639b22b35a15818cb"
+    },
+    {
+      "file": "pfm-ridge-fusion.png",
+      "kind": "curated native Workbench rendering",
+      "description": "Left: all-network winner-take-all maps. Right: DMN-Parietal (Default_Parietal), the first continuous network-weight map. Display-only scene layout; no re-estimation.",
+      "sha256": "3dbdc86ac90101ebeed40075d72db3f811e6a9b525ee2bf66c942eca311f7d74"
+    },
+    {
+      "file": "pfm-infomap.png",
+      "kind": "curated native Workbench rendering",
+      "description": "Left: all-network labels; right: first network weight map. Display-only scene layout; no re-estimation.",
+      "sha256": "53d17a8f84e3bd464dc9d01d8aab80b6afdce9b60855ba78d86d571324888062"
+    },
+    {
+      "file": "tans-sal-optimization.png",
+      "kind": "curated pfm-tans example",
+      "description": "Illustrative SAL target; see TANS gallery disclosures.",
+      "sha256": "7f9be4a3705b52e5f2e163e4e801624d363a1c61fc4d41793b22eb3c8d6968bf"
+    },
+    {
+      "file": "tans-sal-dose-workpage.png",
+      "kind": "curated pfm-tans example",
+      "description": "Illustrative SAL target; see TANS gallery disclosures.",
+      "sha256": "d4d985fb670dd92a8047645b987b858917ef057682847a416a0698305ba4f213"
+    },
+    {
+      "file": "qc-coreg-stability.png",
+      "kind": "documentation replot of saved QC metrics",
+      "description": "All 26 runs across 13 sessions, sorted numerically by session/run. Original metric values; no registration rerun.",
+      "sha256": "9d5b45cdf7e82ec52b702e0a0b0441ccddac09c9c2d4a64a40e9940a06ace1c8"
+    },
+    {
+      "file": "qc-motion-grayplots.png",
+      "kind": "production QC re-render with generic display title",
+      "description": "Session 1/run 1, selected by acquisition order for readability; 1200 sampled grayordinates and FD 0.3 mm. Saved stage data; no denoising rerun.",
+      "sha256": "52072f0af4b373e3408a8786667bdfcc67213aa7f30c8f60748b834e37089d5f"
+    },
+    {
+      "file": "qc-seed-fc.mp4",
+      "kind": "unchanged saved movie",
+      "description": "Full 70-second seed-FC review movie.",
+      "sha256": "687efb4d6e2e0253862adb59bd263f363be9b16c174e76ad518b0ce231730d39"
+    },
+    {
+      "file": "qc-seed-fc.png",
+      "kind": "decoded movie frame",
+      "description": "Frame decoded at 12 seconds; no new FC estimation.",
+      "sha256": "6f3cee01b4f0f815af2003b11edb8b3a7e70b429632e2427bf12d537ebc2ed01"
+    },
+    {
+      "file": "individual-workflow.svg",
+      "kind": "conceptual code-native diagram",
+      "description": "Illustrative workflow; no participant data.",
+      "sha256": "490e6161ba98d5544c6cb9f2411c1b6f34e1c860b937ad357c4b94a3f55eeb70"
+    },
+    {
+      "file": "qc-coreg-over-time.gif",
+      "kind": "production fade animation assembled from saved reportlets",
+      "description": "T1w anchor and all 26 runs in numeric session/run order; 220 ms per run panel, 450 ms initial anchor, two 50 ms crossfade frames between panels; 8.87-second continuous loop at original panel resolution. No registration rerun.",
+      "sha256": "9ed83d57c143822ed8b239cf5cf401342922d0eb7548f565898261e42cf5ca47"
+    },
+    {
+      "file": "qc-seed-fc.gif",
+      "kind": "animated preview sampled from saved movie",
+      "description": "One frame per source second from the full 70-second movie, displayed at four frames per second at 960 x 540; DMN-Parietal and other seed-FC patterns are unchanged saved movie frames.",
+      "sha256": "345d7d16a324683d712f54960e35dc7cdaf3f2bc9abe4c99254388ec763b8a95"
+    }
+  ]
+}

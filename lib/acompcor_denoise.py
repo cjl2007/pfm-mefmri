@@ -75,7 +75,7 @@ def load_nifti(path: Path) -> nib.Nifti1Image:
 
 
 def choose_default_paths(subdir: Path, args: argparse.Namespace) -> Tuple[Path, Path, Path]:
-    xfms_dir = os.environ.get("FUNC_XFMS_DIRNAME", "rest")
+    xfms_dir = os.environ.get("FUNC_XFMS_DIRNAME") or os.environ.get("FUNC_DIRNAME", "rest")
     atlas_space = os.environ.get("AtlasSpace", "T1w")
 
     if args.brain_mask:

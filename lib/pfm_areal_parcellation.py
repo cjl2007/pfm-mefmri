@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Python areal parcellation pass with MATLAB-like ridge-fusion post-processing.
+"""Python areal parcellation pass with RidgePFM post-processing.
 
 Implements the same high-level flow used in pfm_areal_parcellation.m:
 1) Build cortical adjacency from neighbor table.
@@ -534,7 +534,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--distance-npy", required=True)
     ap.add_argument("--priors-mat", default="")
     ap.add_argument("--outdir", required=True)
-    ap.add_argument("--outfile", default="RidgeFusion_VTX+ArealParcellation")
+    ap.add_argument("--outfile", default="RidgePFM_VTX+ArealParcellation")
     ap.add_argument("--left-surf", required=True)
     ap.add_argument("--right-surf", required=True)
 

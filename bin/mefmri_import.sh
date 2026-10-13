@@ -13,11 +13,11 @@ Usage:
   mefmri_import.sh [--input-type auto|raw|bids] <INPUT> <...backend args...>
 
 Common examples:
-  # Raw scanner export/DICOM directory. Existing raw-import arguments are passed through.
-  mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 config/mefmri_import_raw_config.sh --session 1 --nordic
+  # Raw scanner export: first copy/edit config/mefmri_import_config.sh as import.sh.
+  mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 /path/to/study/config/import.sh --session 1 --nordic
 
   # Multiple raw visits. Existing raw-import arguments are passed through.
-  mefmri_import.sh --raw-parent /path/to/Raw --subject-dir /path/to/study/ME001 config/mefmri_import_raw_config.sh --nordic
+  mefmri_import.sh --raw-parent /path/to/Raw --subject-dir /path/to/study/ME001 /path/to/study/config/import.sh --nordic
 
   # BIDS root using legacy BIDS-import positional arguments.
   mefmri_import.sh /path/to/bids 06 /path/to/study/ME06 --task rest --mode symlink --overwrite

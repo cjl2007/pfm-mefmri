@@ -35,7 +35,8 @@ Subdir="$StudyFolder/$Subject"
 FuncRoot="$Subdir/func/$FuncDirName"
 UnprocRoot="$Subdir/func/unprocessed/$FuncDirName"
 XfmsDir="$Subdir/func/xfms/$FuncXfmsDir"
-COREG_QA_DIR="${COREG_QA_DIR:-$FuncRoot/qa/Coreg}"
+QC_OUTPUT_DIRNAME="${QC_OUTPUT_DIRNAME:-QC}"
+COREG_QA_DIR="${COREG_QA_DIR:-$FuncRoot/${QC_OUTPUT_DIRNAME}/Coreg}"
 COREG_PYTHON="${COREG_PYTHON:-${PIPELINE_PYTHON:-python3}}"
 MedicReferenceModule="${FUNC_MEDIC_REFERENCE_MODULE:-$MEDIR/modules/mefmri_func_medic_reference.sh}"
 MEDIC_REFERENCE_POLICY="${MEDIC_REFERENCE_POLICY:-first}"
@@ -193,7 +194,7 @@ echo "[medic-coreg] Building MEDIC-unwarped SBRefs using policy=$MEDIC_REFERENCE
 preserve_run_local_medic_dirs
 trap restore_run_local_medic_dirs EXIT
 "$COREG_PYTHON" "$MEDIR/lib/find_epi_params.py" \
-  --subdir "$Subdir" --func-name "$FuncDirName" --func-prefix "$FuncFilePrefix" --start-session "$StartSession" --no-fieldmap-mode
+  --subdir "$Subdir" --func-name "$FuncDirName" --func-prefix "$FuncFilePrefix" --start-session "$StartSession" --qc-dirname "$QC_OUTPUT_DIRNAME" --no-fieldmap-mode
 restore_run_local_medic_dirs
 trap - EXIT
 

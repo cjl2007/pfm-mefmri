@@ -7,18 +7,18 @@
 #   mefmri_import_raw.sh --raw-list FILE --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
 #   mefmri_import_raw.sh --raw-parent DIR --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
 #
-# Example:
+# Example (copy and edit config/mefmri_import_config.sh first):
 #   bash bin/mefmri_import_raw.sh \
 #     /path/to/raw_dicom_export \
 #     /path/to/study/ME001 \
-#     /path/to/config/mefmri_import_raw_config.sh \
+#     /path/to/config/mefmri_import_config.sh \
 #     --session 1
 #
 # Dry-run example:
 #   bash bin/mefmri_import_raw.sh \
 #     /path/to/raw_dicom_export \
 #     /path/to/study/ME001 \
-#     /path/to/config/mefmri_import_raw_config.sh \
+#     /path/to/config/mefmri_import_config.sh \
 #     --session 1 \
 #     --dry-run
 
@@ -33,18 +33,18 @@ Usage:
   mefmri_import_raw.sh --raw-list FILE --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
   mefmri_import_raw.sh --raw-parent DIR --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
 
-Example:
+Example (copy and edit config/mefmri_import_config.sh first):
   bash bin/mefmri_import_raw.sh \
     /path/to/raw_dicom_export \
     /path/to/study/ME001 \
-    config/mefmri_import_raw_config.sh \
+    /path/to/study/config/import.sh \
     --dry-run
 
 Multiple visits:
   bash bin/mefmri_import_raw.sh \
-    --raw-parent "/media/charleslynch/Extreme SSD/SIBD/SIBD01/Raw" \
-    --subject-dir /path/to/study/SIBD01 \
-    config/mefmri_import_raw_bd2_config.sh \
+    --raw-parent "/path/to/raw/SUB001" \
+    --subject-dir /path/to/study/SUB001 \
+    /path/to/study/config/import.sh \
     --nordic
 EOF
 }
@@ -61,7 +61,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MEDIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$MEDIR/config/mefmri_import_raw_config.sh"
+CONFIG_FILE="$MEDIR/config/mefmri_import_config.sh"
 
 SESSION=""
 DRY_RUN=0
@@ -69,7 +69,7 @@ USE_NORDIC=0
 MAKE_NORDIC_TEST_SESSIONS=0
 PREPARE_NORDIC_COMMANDS_ONLY=0
 IMPORT_WORK_SUBDIR=""
-NORDIC_CODE_DIR="${NORDIC_CODE_DIR:-/home/charleslynch/Desktop/NORDIC-Test/code}"
+NORDIC_CODE_DIR="${NORDIC_CODE_DIR:-$MEDIR/lib/nordic}"
 NORDIC_MATLAB_BIN="${NORDIC_MATLAB_BIN:-matlab}"
 SUBJECT_DIR=""
 RAW_PARENT=""
@@ -196,7 +196,7 @@ while [[ "$#" -gt 0 ]]; do
       exit 2
       ;;
     *)
-      if [[ -f "$1" && "$CONFIG_FILE" == "$MEDIR/config/mefmri_import_raw_config.sh" ]]; then
+      if [[ -f "$1" && "$CONFIG_FILE" == "$MEDIR/config/mefmri_import_config.sh" ]]; then
         CONFIG_FILE="$1"
         shift
       else

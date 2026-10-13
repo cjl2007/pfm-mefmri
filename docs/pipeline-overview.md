@@ -32,6 +32,7 @@ concat
 nsi
 pfm
 pfm_update
+tans
 ```
 
 Use `START_FROM_MODULE` and `STOP_AFTER_MODULE` to resume or inspect a subset.
@@ -78,10 +79,12 @@ needs to share an existing transform namespace.
 
 Use `bin/mefmri_import.sh` as the common front door for raw scanner exports and
 BIDS datasets. It dispatches to the raw importer when DICOM-like files are
-present and to the BIDS importer when BIDS-style `sub-*` NIfTIs are present:
+present and to the BIDS importer when BIDS-style `sub-*` NIfTIs are present.
+First copy/edit `config/mefmri_import_config.sh` as your study's `import.sh`; see
+[configuration setup](configuration.md):
 
 ```bash
-bash bin/mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 config/mefmri_import_raw_config.sh --session 1 --nordic
+bash bin/mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 /path/to/MyStudy/config/import.sh --session 1
 bash bin/mefmri_import.sh /path/to/bids 06 /path/to/study/ME06 --task rest --mode symlink --overwrite
 ```
 
@@ -168,11 +171,40 @@ Downstream analysis modules are independent switches:
 CRAWLING_SEED_FC_ENABLE=1
 NSI_ENABLE=1
 PFM_ENABLE=1
-PFM_STRATEGY="ridge_fusion"      # ridge_fusion|infomap
+PFM_STRATEGY="ridgepfm"      # ridgepfm|infomap|all
 ```
 
 The `pfm_update` stage applies manual Infomap edits without rerunning heavy
 community detection.
+
+## Optional TANS Stage
+
+With `TANS_ENABLE=1`, the wrapper calls the Python workflow in `TANS_CODE_ROOT`
+after PFM. TANS builds its separate head model from native `anat/T1w/T1w.nii.gz`
+and `anat/T2w/T2w.nii.gz`; it does not reuse the ACPC `anat/charm` head model.
+
+```bash
+TANS_CODE_ROOT="/opt/pfm-tans/pipeline"
+TANS_CONFIG_FILE="/data/MyStudy/config/tans.yaml"
+TANS_OUTPUT_DIRNAME="tans"
+```
+
+The output is always `<SubjectDir>/<TANS_OUTPUT_DIRNAME>`, with an unset or empty
+folder name defaulting to `tans`. For example, `TANS_OUTPUT_DIRNAME="tans_review"`
+selects `<SubjectDir>/tans_review` for each subject without a subject-specific
+config path. Specify one folder name, not an absolute path or nested path.
+
+The old `TANS_OUTPUT_DIR` setting is rejected when nonempty: replace it with
+`TANS_OUTPUT_DIRNAME` in existing configs. Changing this setting does not move
+or rename existing outputs.
+
+For a subject with completed PFM, set `START_FROM_MODULE="tans"` and
+`STOP_AFTER_MODULE="tans"`. `TANS_START_FROM="headmodel"` controls where the
+separate TANS workflow begins, not where the ME-fMRI wrapper resumes.
+
+Use the [complete TANS integration guide](tans-integration.md) and portable
+shell/YAML examples. Select maps, cortical search region, physical coils, and
+calibration identities explicitly for the study.
 
 ## Provenance
 

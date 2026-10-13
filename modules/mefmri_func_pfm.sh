@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PFM stage entrypoint: distance build, ridge fusion, and optional areal parcellation.
+# PFM stage entrypoint: distance build, RidgePFM, and optional areal parcellation.
 set -euo pipefail
 
 Subject="${1:?missing Subject}"
@@ -10,12 +10,33 @@ FuncDirName="${5:-${FUNC_DIRNAME:-rest}}"
 FuncFilePrefix="${6:-${FUNC_FILE_PREFIX:-Rest}}"
 
 SubjectDir="${StudyFolder}/${Subject}"
-PFM_STRATEGY="${PFM_STRATEGY:-ridge_fusion}"
+PFM_STRATEGY="${PFM_STRATEGY:-ridgepfm}"
 PFM_PYTHON="${PFM_PYTHON:-${PIPELINE_PYTHON:-python3}}"
 PFM_RESOURCES_ROOT="${PFM_RESOURCES_ROOT:-${MEDIR}/res0urces}"
 PFM_ROOT_DIR="${PFM_OUTDIR:-${SubjectDir}/func/${FuncDirName}/PFM}"
-if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
-  PFM_OUTDIR="${PFM_ROOT_DIR}/RidgeFusion"
+
+case "$PFM_STRATEGY" in
+  ridgepfm|RidgePFM|ridge_fusion|RidgeFusion|ridge-fusion)
+    PFM_STRATEGY="ridgepfm"
+    ;;
+  infomap|Infomap)
+    PFM_STRATEGY="infomap"
+    ;;
+  all|All|ALL)
+    echo "[pfm] strategy=all; running RidgePFM then Infomap"
+    PFM_STRATEGY="ridgepfm" PFM_OUTDIR="$PFM_ROOT_DIR" bash "$0" "$Subject" "$StudyFolder" "$MEDIR" "$_unused_start_session" "$FuncDirName" "$FuncFilePrefix"
+    PFM_STRATEGY="infomap" PFM_OUTDIR="$PFM_ROOT_DIR" bash "$0" "$Subject" "$StudyFolder" "$MEDIR" "$_unused_start_session" "$FuncDirName" "$FuncFilePrefix"
+    echo "[pfm] all strategies complete"
+    exit 0
+    ;;
+  *)
+    echo "ERROR: PFM_STRATEGY must be ridgepfm, infomap, or all (got: $PFM_STRATEGY)"
+    exit 2
+    ;;
+esac
+
+if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
+  PFM_OUTDIR="${PFM_ROOT_DIR}/RidgePFM"
 else
   PFM_OUTDIR="${PFM_ROOT_DIR}/Infomap"
 fi
@@ -31,10 +52,12 @@ PFM_DISTANCE_VARIANT_CHUNK_ROWS="${PFM_DISTANCE_VARIANT_CHUNK_ROWS:-128}"
 PFM_DISTANCE_CORTEX_MODE="${PFM_DISTANCE_CORTEX_MODE:-hybrid}"
 PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM="${PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM:-5}"
 
-PFM_RF_OUTFILE="${PFM_RF_OUTFILE:-RidgeFusion_VTX}"
+PFM_RF_OUTFILE="${PFM_RF_OUTFILE:-RidgePFM_VTX}"
 PFM_RF_FC_WEIGHT="${PFM_RF_FC_WEIGHT:-1.0}"
 PFM_RF_FC_DEMEAN="${PFM_RF_FC_DEMEAN:-0}"
-PFM_RF_SPATIAL_WEIGHT="${PFM_RF_SPATIAL_WEIGHT:-0.1}"
+PFM_RF_POSITIVE_FC_ONLY="${PFM_RF_POSITIVE_FC_ONLY:-0}"
+PFM_RF_SPATIAL_WEIGHT="${PFM_RF_SPATIAL_WEIGHT:-0.05}"
+PFM_RF_SPATIAL_PRIOR_TRANSFORM="${PFM_RF_SPATIAL_PRIOR_TRANSFORM:-logit}"
 PFM_RF_LAMBDA="${PFM_RF_LAMBDA:-10}"
 PFM_RF_LOCAL_EXCLUSION_MM="${PFM_RF_LOCAL_EXCLUSION_MM:-10}"
 PFM_RF_SUBCORT_REGRESS_ENABLE="${PFM_RF_SUBCORT_REGRESS_ENABLE:-1}"
@@ -50,7 +73,12 @@ PFM_AREAL_OUTFILE="${PFM_AREAL_OUTFILE:-}"
 PFM_AREAL_MIN_SIZE="${PFM_AREAL_MIN_SIZE:-30}"
 PFM_NEIGHBORS_MAT="${PFM_NEIGHBORS_MAT:-${PFM_RESOURCES_ROOT}/Cifti_surf_neighbors_LR_normalwall.mat}"
 
-# Opt-in, experimental multi-network extension for Ridge-Fusion areal output.
+PFM_RF_REVIEW_SCENE_ENABLE="${PFM_RF_REVIEW_SCENE_ENABLE:-1}"
+PFM_RF_REVIEW_SCENE_TEMPLATE="${PFM_RF_REVIEW_SCENE_TEMPLATE:-${PFM_RESOURCES_ROOT}/InfomapReviewScene/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualReview.template.scene}"
+PFM_RF_VERTEX_REVIEW_SCENE_OUTFILE="${PFM_RF_VERTEX_REVIEW_SCENE_OUTFILE:-RidgePFM_Vertexwise_Review.scene}"
+PFM_RF_AREAL_REVIEW_SCENE_OUTFILE="${PFM_RF_AREAL_REVIEW_SCENE_OUTFILE:-RidgePFM_ArealParcellation_Review.scene}"
+
+# Opt-in, experimental multi-network extension for RidgePFM areal output.
 # Preliminary behavior is encouraging, but broader validation is still needed.
 PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE="${PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE:-0}"
 PFM_RF_MULTINETWORK_STRIPE_PRESET="${PFM_RF_MULTINETWORK_STRIPE_PRESET:-balanced}"
@@ -148,23 +176,21 @@ PFM_INFOMAP_LABEL_DENSITY_INDEX="${PFM_INFOMAP_LABEL_DENSITY_INDEX:--1}"
 PFM_INFOMAP_LABEL_WB_COMMAND="${PFM_INFOMAP_LABEL_WB_COMMAND:-wb_command}"
 PFM_INFOMAP_LABEL_WRITE_FC="${PFM_INFOMAP_LABEL_WRITE_FC:-1}"
 PFM_INFOMAP_LABEL_FC_CHUNK_ROWS="${PFM_INFOMAP_LABEL_FC_CHUNK_ROWS:-4096}"
+PFM_INFOMAP_REVIEW_SCENE_ENABLE="${PFM_INFOMAP_REVIEW_SCENE_ENABLE:-1}"
+PFM_INFOMAP_REVIEW_SCENE_TEMPLATE="${PFM_INFOMAP_REVIEW_SCENE_TEMPLATE:-${PFM_RESOURCES_ROOT}/InfomapReviewScene/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualReview.template.scene}"
+PFM_INFOMAP_REVIEW_SCENE_OUTFILE="${PFM_INFOMAP_REVIEW_SCENE_OUTFILE:-Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualReview.scene}"
 PFM_INFOMAP_MANUAL_LABEL_APPLY_ENABLE="${PFM_INFOMAP_MANUAL_LABEL_APPLY_ENABLE:-0}"
 PFM_INFOMAP_MANUAL_LABEL_TABLE="${PFM_INFOMAP_MANUAL_LABEL_TABLE:-}"
 PFM_INFOMAP_MANUAL_LABEL_OUTFILE="${PFM_INFOMAP_MANUAL_LABEL_OUTFILE:-${PFM_INFOMAP_LABEL_OUTFILE}_ManualAdjusted}"
 PFM_INFOMAP_UPDATE_ENABLE="${PFM_INFOMAP_UPDATE_ENABLE:-0}"
 PFM_INFOMAP_UPDATE_TABLE_GLOB="${PFM_INFOMAP_UPDATE_TABLE_GLOB:-GraphDensity_*/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.csv}"
 PFM_INFOMAP_UPDATE_OUTFILE="${PFM_INFOMAP_UPDATE_OUTFILE:-InfomapNetworkLabels_ManualAdjusted}"
-PFM_HOMOGENEITY_TEST_ENABLE="${PFM_HOMOGENEITY_TEST_ENABLE:-0}"
+PFM_HOMOGENEITY_TEST_ENABLE="${PFM_HOMOGENEITY_TEST_ENABLE:-1}"
 PFM_HOMOGENEITY_ROTATIONS_CIFTI="${PFM_HOMOGENEITY_ROTATIONS_CIFTI:-${PFM_RESOURCES_ROOT}/Rotated_inds.dtseries.nii}"
 PFM_HOMOGENEITY_N_ROTATIONS="${PFM_HOMOGENEITY_N_ROTATIONS:-1000}"
 PFM_HOMOGENEITY_MIN_COMMUNITY_SIZE="${PFM_HOMOGENEITY_MIN_COMMUNITY_SIZE:-5}"
 PFM_HOMOGENEITY_MAX_MEMBERS_PER_COMMUNITY="${PFM_HOMOGENEITY_MAX_MEMBERS_PER_COMMUNITY:-1000}"
 PFM_HOMOGENEITY_ALPHA="${PFM_HOMOGENEITY_ALPHA:-0.05}"
-
-if [[ "$PFM_STRATEGY" != "ridge_fusion" && "$PFM_STRATEGY" != "infomap" ]]; then
-  echo "ERROR: PFM_STRATEGY must be ridge_fusion or infomap (got: $PFM_STRATEGY)"
-  exit 2
-fi
 
 if [[ -z "$PFM_INPUT_CIFTI" ]]; then
   FD_TAG="${PFM_FD_THRESHOLD//./p}"
@@ -183,7 +209,7 @@ echo "[pfm] output dir=${PFM_OUTDIR}"
 [[ -f "$PFM_INPUT_CIFTI" ]] || { echo "ERROR: missing input CIFTI: $PFM_INPUT_CIFTI"; exit 2; }
 [[ -f "$L_MID" && -f "$R_MID" ]] || { echo "ERROR: missing midthickness surfaces"; exit 2; }
 command -v wb_command >/dev/null 2>&1 || { echo "ERROR: wb_command not found"; exit 2; }
-if [[ "$PFM_STRATEGY" == "ridge_fusion" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE" == "1" && "$PFM_AREAL_ENABLE" != "1" ]]; then
+if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE" == "1" && "$PFM_AREAL_ENABLE" != "1" ]]; then
   echo "ERROR: PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=1 requires PFM_AREAL_ENABLE=1"
   exit 2
 fi
@@ -197,7 +223,7 @@ fi
 mkdir -p "$PREP_DIR"
 echo "[pfm] prep dir=${PREP_DIR} (PFM-only intermediates)"
 
-if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
+if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
   echo "[pfm] distance matrix=${PFM_DISTANCE_MATRIX}"
   if [[ ! -f "$PFM_DISTANCE_MATRIX" && "$PFM_DISTANCE_BUILD_IF_MISSING" == "1" ]]; then
     echo "[pfm] building distance matrix (default model) -> ${PFM_DISTANCE_MATRIX}"
@@ -241,7 +267,7 @@ echo "[pfm] prepared input CIFTI=${PFM_INPUT_CIFTI}"
 PFM_NETWORK_DLABEL=""
 PFM_AREAL_DISTANCE_MATRIX=""
 
-if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
+if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
 
   [[ -f "$PFM_DISTANCE_MATRIX" ]] || { echo "ERROR: distance matrix not found: $PFM_DISTANCE_MATRIX"; exit 2; }
   [[ -f "$PFM_PRIORS_MAT" ]] || { echo "ERROR: missing PFM cortical network priors mat: $PFM_PRIORS_MAT"; exit 2; }
@@ -258,7 +284,7 @@ if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
     applywarp -i "$PFM_SUBCORT_PRIORS_NII" -o "$PFM_SUBCORT_PRIORS_ACPC" -r "$ACPC_REF_FUNC" -w "$XFM_STANDARD2ACPC"
   fi
 
-  echo "[pfm] running Python ridge fusion"
+  echo "[pfm] running Python RidgePFM"
   "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_fusion.py" \
     --in-cifti "$PFM_INPUT_CIFTI" \
     --distance-npy "$PFM_DISTANCE_MATRIX" \
@@ -267,7 +293,9 @@ if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
     --outfile "$PFM_RF_OUTFILE" \
     --fc-weight "$PFM_RF_FC_WEIGHT" \
     --fc-demean "$PFM_RF_FC_DEMEAN" \
+    --positive-fc-only "$PFM_RF_POSITIVE_FC_ONLY" \
     --spatial-weight "$PFM_RF_SPATIAL_WEIGHT" \
+    --spatial-prior-transform "$PFM_RF_SPATIAL_PRIOR_TRANSFORM" \
     --lambda "$PFM_RF_LAMBDA" \
     --local-exclusion-mm "$PFM_RF_LOCAL_EXCLUSION_MM" \
     --brain-structures-csv "$PFM_RF_BRAIN_STRUCTURES_CSV" \
@@ -348,8 +376,12 @@ else
       --left-surf "$L_MID" \
       --right-surf "$R_MID" \
       --wb-command "$PFM_INFOMAP_LABEL_WB_COMMAND" \
-      --density-output-mode subdirs
-      PFM_NETWORK_DLABEL="${PFM_OUTDIR}/${PFM_INFOMAP_LABEL_OUTFILE}_ModeConsensus.dlabel.nii"
+      --density-output-mode subdirs \
+      --write-review-scenes "$PFM_INFOMAP_REVIEW_SCENE_ENABLE" \
+      --review-scene-template "$PFM_INFOMAP_REVIEW_SCENE_TEMPLATE" \
+      --review-scene-subject "$Subject" \
+      --review-scene-outfile "$PFM_INFOMAP_REVIEW_SCENE_OUTFILE"
+    PFM_NETWORK_DLABEL="${PFM_OUTDIR}/${PFM_INFOMAP_LABEL_OUTFILE}_ModeConsensus.dlabel.nii"
 
     if [[ "$PFM_INFOMAP_MANUAL_LABEL_APPLY_ENABLE" == "1" ]]; then
       if [[ -z "$PFM_INFOMAP_MANUAL_LABEL_TABLE" ]]; then
@@ -404,7 +436,7 @@ if [[ "$PFM_HOMOGENEITY_TEST_ENABLE" == "1" ]]; then
       --title "Infomap density homogeneity" \
       "${HOMOG_ROT_ARGS[@]}"
   elif [[ -n "$PFM_NETWORK_DLABEL" && -f "$PFM_NETWORK_DLABEL" ]]; then
-    echo "[pfm] running Ridge-Fusion homogeneity diagnostics"
+    echo "[pfm] running RidgePFM homogeneity diagnostics"
     "$PFM_PYTHON" "$MEDIR/lib/pfm_homogeneity_test.py" \
       --in-cifti "$PFM_INPUT_CIFTI" \
       --labels-cifti "$PFM_NETWORK_DLABEL" \
@@ -412,8 +444,8 @@ if [[ "$PFM_HOMOGENEITY_TEST_ENABLE" == "1" ]]; then
       --min-community-size "$PFM_HOMOGENEITY_MIN_COMMUNITY_SIZE" \
       --max-members-per-community "$PFM_HOMOGENEITY_MAX_MEMBERS_PER_COMMUNITY" \
       --alpha "$PFM_HOMOGENEITY_ALPHA" \
-      --outfile-prefix "RidgeFusionHomogeneity" \
-      --title "Ridge-Fusion homogeneity" \
+      --outfile-prefix "RidgePFMHomogeneity" \
+      --title "RidgePFM homogeneity" \
       "${HOMOG_ROT_ARGS[@]}"
   fi
 fi
@@ -426,7 +458,7 @@ if [[ "$PFM_AREAL_ENABLE" == "1" ]]; then
   [[ -f "$PFM_PRIORS_MAT" ]] || { echo "ERROR: missing PFM cortical network priors mat for areal parcellation: $PFM_PRIORS_MAT"; exit 2; }
 
   if [[ -z "$PFM_AREAL_OUTFILE" ]]; then
-    if [[ "$PFM_STRATEGY" == "ridge_fusion" ]]; then
+    if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
       PFM_AREAL_OUTFILE="${PFM_RF_OUTFILE}+ArealParcellation"
     elif [[ "$PFM_INFOMAP_MANUAL_LABEL_APPLY_ENABLE" == "1" ]]; then
       PFM_AREAL_OUTFILE="${PFM_INFOMAP_MANUAL_LABEL_OUTFILE}+ArealParcellation"
@@ -449,7 +481,30 @@ if [[ "$PFM_AREAL_ENABLE" == "1" ]]; then
     --right-surf "$R_MID"
 fi
 
-if [[ "$PFM_STRATEGY" == "ridge_fusion" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE" == "1" ]]; then
+if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_AREAL_ENABLE" == "1" ]]; then
+  if [[ "$PFM_RF_REVIEW_SCENE_ENABLE" == "1" ]]; then
+    echo "[pfm] writing RidgePFM areal probability maps and review scene"
+    "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_fusion_review.py" \
+      --network-dlabel "${PFM_OUTDIR}/${PFM_RF_OUTFILE}.dlabel.nii" \
+      --prob-maps "${PFM_OUTDIR}/${PFM_RF_OUTFILE}_ProbMaps.dtseries.nii" \
+      --areal-dlabel "${PFM_OUTDIR}/${PFM_AREAL_OUTFILE}.dlabel.nii" \
+      --outdir "$PFM_OUTDIR" \
+      --outfile-prefix "$PFM_AREAL_OUTFILE" \
+      --write-scene 1 \
+      --scene-template "$PFM_RF_REVIEW_SCENE_TEMPLATE" \
+      --vertex-scene-outfile "$PFM_RF_VERTEX_REVIEW_SCENE_OUTFILE" \
+      --areal-scene-outfile "$PFM_RF_AREAL_REVIEW_SCENE_OUTFILE" \
+      --subject "$Subject" \
+      --left-surf "$L_MID" \
+      --right-surf "$R_MID" \
+      --network-left-border "${PFM_OUTDIR}/${PFM_RF_OUTFILE}.L.border" \
+      --network-right-border "${PFM_OUTDIR}/${PFM_RF_OUTFILE}.R.border" \
+      --areal-left-border "${PFM_OUTDIR}/${PFM_AREAL_OUTFILE}.L.border" \
+      --areal-right-border "${PFM_OUTDIR}/${PFM_AREAL_OUTFILE}.R.border"
+  fi
+fi
+
+if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE" == "1" ]]; then
   echo "[pfm] experimental multi-network stripe preset=${PFM_RF_MULTINETWORK_STRIPE_PRESET}"
   PFM_RF_MULTINETWORK_DIR="${PFM_OUTDIR}/${PFM_RF_MULTINETWORK_OUTDIR_NAME}"
   PFM_RF_MULTINETWORK_CV_PREFIX="${PFM_RF_MULTINETWORK_OUTFILE}CV"
@@ -460,13 +515,13 @@ if [[ "$PFM_STRATEGY" == "ridge_fusion" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_EN
   PFM_RF_MULTINETWORK_SUPPORT="${PFM_RF_MULTINETWORK_DIR}/${PFM_RF_MULTINETWORK_CV_PREFIX}_ParcelSummary.csv"
 
   [[ -f "$PFM_RF_MULTINETWORK_PARCELS" ]] || { echo "ERROR: missing areal dlabel for experimental multi-network analysis: $PFM_RF_MULTINETWORK_PARCELS"; exit 2; }
-  [[ -f "$PFM_RF_MULTINETWORK_PROB" ]] || { echo "ERROR: missing Ridge-Fusion probability maps: $PFM_RF_MULTINETWORK_PROB"; exit 2; }
+  [[ -f "$PFM_RF_MULTINETWORK_PROB" ]] || { echo "ERROR: missing RidgePFM probability maps: $PFM_RF_MULTINETWORK_PROB"; exit 2; }
   [[ -f "$PFM_RF_MULTINETWORK_FD" ]] || { echo "ERROR: missing concatenation FD file: $PFM_RF_MULTINETWORK_FD"; exit 2; }
   [[ -f "$PFM_RF_MULTINETWORK_SCAN_INFO" ]] || { echo "ERROR: missing concatenation ScanInfo.json: $PFM_RF_MULTINETWORK_SCAN_INFO"; exit 2; }
   [[ -f "$L_SPHERE" && -f "$R_SPHERE" ]] || { echo "ERROR: missing 32k spherical surfaces for stripe rendering"; exit 2; }
   mkdir -p "$PFM_RF_MULTINETWORK_DIR"
 
-  echo "[pfm] experimental Ridge-Fusion multi-network CV/null selection"
+  echo "[pfm] experimental RidgePFM multi-network CV/null selection"
   "$PFM_PYTHON" "$MEDIR/lib/pfm_parcel_run_split_cv.py" \
     --in-cifti "$PFM_INPUT_CIFTI" \
     --fd-txt "$PFM_RF_MULTINETWORK_FD" \

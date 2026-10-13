@@ -1,5 +1,9 @@
 # PFM Outputs
 
+[See example maps and continuous representations](output-gallery.md#individual-network-representations).
+Network labels and weights can feed the [optional TANS module](tans-integration.md)
+after QC and explicit selection of the input maps and metadata.
+
 PFM runs after CIFTI concatenation and FD censoring. The default input is the
 final concatenated dtseries:
 
@@ -7,27 +11,58 @@ final concatenated dtseries:
 func/<FUNC_DIRNAME>/ConcatenatedCiftis/<FuncPrefix>_<InputTag>_Concatenated+FDlt<FD>.dtseries.nii
 ```
 
+FD follows the historical `concatenate_scans.m` calculation independently for
+each run. For **TR < 2 seconds**, the six motion parameters receive a zero-phase,
+10th-order Butterworth bandstop from **0.2 Hz to Nyquist minus 0.019 Hz** before
+FD is calculated. Runs with TR >= 2 seconds use unfiltered motion. FD uses
+`round(2.5 / TR)` backward differences with MATLAB's rounding, a 50 mm rotation
+radius, and zero FD for the leading lag frames of each run. Censoring retains
+frames with **FD < CONCAT_FD_THRESHOLD** (default 0.3 mm).
+
+The Python filter uses second-order sections for numerical stability and
+MATLAB-compatible edge padding. This preserves the historical filter design;
+it does not reproduce numerical artifacts of the old direct-form filter,
+which can be unstable near TR = 2 seconds. Filtering requires more than 60
+frames per run when TR < 2 seconds and fails explicitly for shorter runs.
+This filtering applies to motion parameters, not the BOLD signal.
+
+`FD.txt` stores the FD used for censoring at full precision. `ScanInfo.json`
+records each run's TR, filter settings, and lag, and `PFMPrepSummary.json`
+records the FD method. Motion grayplot QC uses the same calculation; keep its
+threshold equal to `CONCAT_FD_THRESHOLD` to compare retained-frame counts.
+
+Existing derivatives are not changed by updating the code. To adopt this FD
+calculation for an already processed subject, regenerate concatenation and
+the downstream analyses that consume its censored CIFTI, and refresh motion QC.
+
 PFM writes strategy-specific outputs under:
 
 ```text
 func/<FUNC_DIRNAME>/PFM/
-  RidgeFusion/
+  RidgePFM/
   Infomap/
 ```
 
-Set `PFM_STRATEGY="all"` to run both Ridge-Fusion and Infomap in one PFM stage.
+Set `PFM_STRATEGY="all"` to run both RidgePFM and Infomap in one PFM stage.
 Each strategy writes to its own subfolder under `PFM/`.
 
-## Ridge-Fusion
+## RidgePFM
+
+RidgePFM is the current name for the method previously called Ridge-Fusion.
+New runs use `PFM_STRATEGY="ridgepfm"`, the `PFM/RidgePFM/` folder, and
+`RidgePFM_*` filenames. The strategy aliases `ridge_fusion`, `RidgeFusion`, and
+`ridge-fusion` remain accepted; explicit `PFM_RF_*` settings still take precedence.
+Existing result folders are not moved or renamed. The default FC weight is
+**1.0** and the default spatial-prior weight is **0.05**.
 
 Enable with:
 
 ```bash
 PFM_ENABLE=1
-PFM_STRATEGY="ridge_fusion"
+PFM_STRATEGY="ridgepfm"
 ```
 
-Ridge-Fusion estimates network assignments from a regularized fusion of subject
+RidgePFM estimates network assignments from a regularized fusion of subject
 functional connectivity evidence and spatial/network priors. The design goal is
 to provide a faster, prior-guided PFM path that remains sensitive to
 subject-specific deviations.
@@ -35,9 +70,11 @@ subject-specific deviations.
 Important controls:
 
 ```bash
-PFM_RF_OUTFILE="RidgeFusion_VTX"
+PFM_RF_OUTFILE="RidgePFM_VTX"
 PFM_RF_FC_WEIGHT=1.0
-PFM_RF_SPATIAL_WEIGHT=0.1
+PFM_RF_POSITIVE_FC_ONLY=0
+PFM_RF_SPATIAL_WEIGHT=0.05
+PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit"
 PFM_RF_LAMBDA=10
 PFM_RF_LOCAL_EXCLUSION_MM=10
 PFM_RF_FC_DEMEAN=0
@@ -51,21 +88,35 @@ For inputs without GSR/MGTR-style global signal control, consider:
 PFM_RF_FC_DEMEAN=1
 ```
 
+`PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit"` matches the legacy MATLAB
+RidgePFM V4/V5 fusion rule. `PFM_RF_POSITIVE_FC_ONLY=1` is available as an
+experimental V5-style diagnostic mode that fits the ridge model only on positive
+target FC edges.
+
 Primary outputs:
 
 ```text
-PFM/RidgeFusion/RidgeFusion_VTX.dlabel.nii
-PFM/RidgeFusion/RidgeFusion_VTX.L.border
-PFM/RidgeFusion/RidgeFusion_VTX.R.border
-PFM/RidgeFusion/RidgeFusion_VTX_R2.dtseries.nii
-PFM/RidgeFusion/RidgeFusion_VTX_ProbMaps.dtseries.nii
-PFM/RidgeFusion/prep/
-PFM/RidgeFusion/HomogeneityTest/
+PFM/RidgePFM/RidgePFM_VTX.dlabel.nii
+PFM/RidgePFM/RidgePFM_VTX.L.border
+PFM/RidgePFM/RidgePFM_VTX.R.border
+PFM/RidgePFM/RidgePFM_VTX_R2.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX_ProbMaps.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.dlabel.nii
+PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.L.border
+PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.R.border
+PFM/RidgePFM/RidgePFM_VTX+ArealParcellation_ProbMaps.dtseries.nii
+PFM/RidgePFM/RidgePFM_Vertexwise_Review.scene
+PFM/RidgePFM/RidgePFM_ArealParcellation_Review.scene
+PFM/RidgePFM/prep/
+PFM/RidgePFM/HomogeneityTest/
 ```
 
-Open `RidgeFusion_VTX.dlabel.nii` in Connectome Workbench with the subject
-surfaces. Use `RidgeFusion_VTX_R2.dtseries.nii` and probability maps as
-confidence-style supporting layers.
+Open `RidgePFM_VTX.dlabel.nii` in Connectome Workbench with the subject
+surfaces. Use `RidgePFM_VTX_R2.dtseries.nii` and probability maps as
+confidence-style supporting layers. `RidgePFM_Vertexwise_Review.scene` loads
+the vertexwise WTA/probability pair with vertexwise black border lines only.
+`RidgePFM_ArealParcellation_Review.scene` loads the areal WTA/probability
+pair with areal black border lines only.
 
 Figure slots:
 
@@ -125,10 +176,11 @@ Per-density outputs:
 PFM/Infomap/GraphDensity_<value>/
   InfomapNetworkLabels_Density<value>.dlabel.nii
   InfomapNetworkLabels_Density<value>_Confidence.dscalar.nii
-  InfomapNetworkLabels_Density<value>_FC.dscalar.nii
   InfomapNetworkLabels_Density<value>_CommunityTable.csv
   InfomapNetworkLabels_Density<value>_AmbiguousCommunities.csv
   Bipartite_PhysicalCommunities+AlgorithmicLabeling.dlabel.nii
+  Bipartite_PhysicalCommunities+AlgorithmicLabeling.L.border
+  Bipartite_PhysicalCommunities+AlgorithmicLabeling.R.border
   Bipartite_PhysicalCommunities+AlgorithmicLabeling_InfoMapCommunities.dlabel.nii
   Bipartite_PhysicalCommunities+AlgorithmicLabeling_FC_WholeBrain.dtseries.nii
   Bipartite_PhysicalCommunities+AlgorithmicLabeling_FC_btwn_InfoMapCommunities.dtseries.nii
@@ -206,7 +258,7 @@ parcels. The output name is derived from the network-label prefix unless
 overridden:
 
 ```text
-PFM/RidgeFusion/RidgeFusion_VTX+ArealParcellation.dlabel.nii
+PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.dlabel.nii
 PFM/Infomap/InfomapNetworkLabels+ArealParcellation.dlabel.nii
 ```
 
@@ -223,14 +275,14 @@ Figure slot:
 docs/assets/pfm-areal-parcellation.png
 ```
 
-## Experimental Multi-Network Ridge-Fusion Maps
+## Experimental Multi-Network RidgePFM Maps
 
-The opt-in multi-network extension asks whether a fixed Ridge-Fusion parcel is
+The opt-in multi-network extension asks whether a fixed RidgePFM parcel is
 described better by two or three network FC templates than by its WTA network
-alone. Enable it only with Ridge-Fusion areal parcellation:
+alone. Enable it only with RidgePFM areal parcellation:
 
 ```bash
-PFM_STRATEGY="ridge_fusion"
+PFM_STRATEGY="ridgepfm"
 PFM_AREAL_ENABLE=1
 PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=1
 ```
@@ -259,7 +311,7 @@ vs 2`). The older whole-brain max-statistic result is retained in the CSV and
 dscalar as a separate extreme-confidence FWER tier.
 
 This layer keeps the full-data parcel geometry fixed and does not rerun areal
-parcellation or Ridge-Fusion within each fold. It is a held-out FC-template
+parcellation or RidgePFM within each fold. It is a held-out FC-template
 mixture diagnostic, so it supplements rather than replaces the original WTA
 and probability maps.
 
@@ -304,29 +356,29 @@ PFM_RF_MULTINETWORK_MIN_CORTICAL_CLUSTER_VERTICES=20
 PFM_RF_MULTINETWORK_MIN_SUBCORTICAL_CLUSTER_VOXELS=5
 ```
 
-Outputs are written under `PFM/RidgeFusion/ExperimentalMultiNetwork/`:
+Outputs are written under `PFM/RidgePFM/ExperimentalMultiNetwork/`:
 
 ```text
-RidgeFusion_VTX+ExperimentalMultiNetworkCV_ParcelSummary.csv
-RidgeFusion_VTX+ExperimentalMultiNetworkCV_FoldResults.csv
-RidgeFusion_VTX+ExperimentalMultiNetworkCV_Diagnostics.dscalar.nii
-RidgeFusion_VTX+ExperimentalMultiNetworkCV_Summary.json
-RidgeFusion_VTX+ExperimentalMultiNetwork_Parcel_NetworkStripes.dlabel.nii
-RidgeFusion_VTX+ExperimentalMultiNetwork_Parcel_SubcorticalNetworkStripes_0p5mm.nii.gz
-RidgeFusion_VTX+ExperimentalMultiNetwork_Localized_NetworkStripes.dlabel.nii
-RidgeFusion_VTX+ExperimentalMultiNetwork_Localized_Diagnostics.dscalar.nii
-RidgeFusion_VTX+ExperimentalMultiNetwork_Localized_ClusterSummary.csv
+RidgePFM_VTX+ExperimentalMultiNetworkCV_ParcelSummary.csv
+RidgePFM_VTX+ExperimentalMultiNetworkCV_FoldResults.csv
+RidgePFM_VTX+ExperimentalMultiNetworkCV_Diagnostics.dscalar.nii
+RidgePFM_VTX+ExperimentalMultiNetworkCV_Summary.json
+RidgePFM_VTX+ExperimentalMultiNetwork_Parcel_NetworkStripes.dlabel.nii
+RidgePFM_VTX+ExperimentalMultiNetwork_Parcel_SubcorticalNetworkStripes_0p5mm.nii.gz
+RidgePFM_VTX+ExperimentalMultiNetwork_Localized_NetworkStripes.dlabel.nii
+RidgePFM_VTX+ExperimentalMultiNetwork_Localized_Diagnostics.dscalar.nii
+RidgePFM_VTX+ExperimentalMultiNetwork_Localized_ClusterSummary.csv
 ```
 
 The parcel dlabel stripes every null-selected parcel that also meets the
 configured cortical/subcortical parcel-size requirement. The localized dlabel
 is more conservative spatially: within a selected parcel, it requires the same
-network set to have local Ridge-Fusion support and form a minimum-size
+network set to have local RidgePFM support and form a minimum-size
 contiguous surface or volume cluster. Thus a parcel may be striped in the
 parcel map but remain WTA in the localized map when its evidence is diffuse.
 This is a parcel-anchored vertex/voxel translation, not a separate vertexwise
 CV/null refit. Outside retained local clusters it exactly preserves the original
-Ridge-Fusion vertex/voxel WTA labels.
+RidgePFM vertex/voxel WTA labels.
 The 0.10 local cutoff is twice the uniform 1/20 reference probability; it is an
 effect-size screen, not a calibrated posterior-probability threshold.
 
@@ -334,7 +386,7 @@ The candidate-identity null is conditional on the observed candidate-gain
 landscape; it is not a generative residual surrogate under a fitted
 one-network timeseries model. Treat this as an experimental descriptive layer
 until it replicates across subjects and a full residual-surrogate or per-fold
-Ridge-Fusion analysis confirms calibration.
+RidgePFM analysis confirms calibration.
 
 ## Workbench Review Checklist
 
@@ -345,5 +397,5 @@ For each subject:
 - Check whether maps respect expected sensory/motor/association topography.
 - Check for session-specific artifacts using QC reports before interpreting
   unusual network deviations.
-- Compare Ridge-Fusion and Infomap when both were run.
+- Compare RidgePFM and Infomap when both were run.
 - Record any manual Infomap corrections in the per-density correction tables.

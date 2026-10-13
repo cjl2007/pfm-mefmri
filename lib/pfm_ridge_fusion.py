@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pure Python ridge-fusion mapping for PFM."""
+"""Pure Python RidgePFM mapping for PFM."""
 
 from __future__ import annotations
 
@@ -25,6 +25,23 @@ def bool_int(value: str) -> int:
     if ivalue not in (0, 1):
         raise argparse.ArgumentTypeError("expected 0 or 1")
     return ivalue
+
+
+def clamp_prob_smooth(p: np.ndarray, floor: float = 1e-6, alpha: float = 1e-5) -> np.ndarray:
+    """Match the legacy MATLAB prior safety transform."""
+    out = np.asarray(p, dtype=np.float32)
+    if alpha > 0:
+        out = (1.0 - float(alpha)) * out + float(alpha) / out.shape[1]
+    return np.clip(out, float(floor), 1.0 - float(floor))
+
+
+def spatial_prior_term(p: np.ndarray, transform: str) -> np.ndarray:
+    if transform == "log":
+        return np.log(np.maximum(p, 1e-6))
+    if transform == "logit":
+        q = clamp_prob_smooth(p)
+        return np.log(q / (1.0 - q))
+    raise ValueError(f"Unknown spatial prior transform: {transform}")
 
 
 def save_scalar_like(ref_img: nib.Cifti2Image, values: np.ndarray, out_path: Path) -> None:
@@ -104,15 +121,22 @@ def inject_subcortical_spatial_priors(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Python ridge-fusion PFM")
+    ap = argparse.ArgumentParser(description="Python RidgePFM")
     ap.add_argument("--in-cifti", required=True)
     ap.add_argument("--distance-npy", required=True, help="npy uint8 distance matrix")
     ap.add_argument("--priors-mat", required=True)
     ap.add_argument("--outdir", required=True)
-    ap.add_argument("--outfile", default="RidgeFusion_VTX")
+    ap.add_argument("--outfile", default="RidgePFM_VTX")
     ap.add_argument("--fc-weight", type=float, default=1.0)
     ap.add_argument("--fc-demean", type=bool_int, default=0, help="demean each target FC fingerprint after local edge exclusion")
-    ap.add_argument("--spatial-weight", type=float, default=0.1)
+    ap.add_argument("--positive-fc-only", type=bool_int, default=0, help="fit ridge model using only positive target FC edges")
+    ap.add_argument("--spatial-weight", type=float, default=0.05)
+    ap.add_argument(
+        "--spatial-prior-transform",
+        choices=("logit", "log"),
+        default="logit",
+        help="transform used for spatial prior fusion; logit matches legacy V4/V5 MATLAB RidgePFM",
+    )
     ap.add_argument("--lambda", dest="lam", type=float, default=10.0)
     ap.add_argument("--local-exclusion-mm", type=float, default=10.0)
     ap.add_argument("--brain-structures-csv", default="")
@@ -172,7 +196,7 @@ def main() -> int:
     spatial_full = np.full((n_gray, n_net), 0.5, dtype=np.float32)
     spatial_full[cortex_idx, :] = pri_spatial
     inject_subcortical_spatial_priors(axis, spatial_full, args.subcort_priors_nii, n_net)
-    spatial_full = np.maximum(spatial_full, 1e-6)
+    spatial_full = clamp_prob_smooth(spatial_full)
 
     label_idx = np.zeros((n_gray,), dtype=np.int32)
     prob_best = np.zeros((n_gray,), dtype=np.float32)
@@ -198,12 +222,23 @@ def main() -> int:
                     m[:, c] = 0.0
             m[~keep, c] = 0.0
 
-        beta = (w @ m).T  # chunk x n_net
+        if int(args.positive_fc_only) == 1:
+            beta = np.zeros((g.size, n_net), dtype=np.float64)
+            for c in range(g.size):
+                keep_pos = m[:, c] > 0
+                if not keep_pos.any():
+                    continue
+                ak = a[keep_pos, :]
+                beta[c, :] = np.linalg.solve(ak.T @ ak + args.lam * np.eye(n_net), ak.T @ m[keep_pos, c])
+        else:
+            beta = (w @ m).T  # chunk x n_net
         beta_mu = beta.mean(axis=1, keepdims=True)
         beta_sd = np.maximum(beta.std(axis=1, keepdims=True), 1e-8)
         beta_z = (beta - beta_mu) / beta_sd
 
-        score = args.fc_weight * beta_z + args.spatial_weight * np.log(spatial_full[g, :])
+        score = args.fc_weight * beta_z + args.spatial_weight * spatial_prior_term(
+            spatial_full[g, :], args.spatial_prior_transform
+        )
         score -= score.max(axis=1, keepdims=True)
         p = np.exp(score)
         p /= np.maximum(p.sum(axis=1, keepdims=True), 1e-8)

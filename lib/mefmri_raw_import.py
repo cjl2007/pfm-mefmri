@@ -13,6 +13,7 @@ import gzip
 import json
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -122,6 +123,10 @@ class SeriesRecord:
     classification: str = "unclassified"
     classification_reason: str = ""
     target_n_volumes: Optional[int] = None
+    noise_volumes_last: int = 0
+
+
+PHASE_SUFFIX = "_phase"
 
 
 class Reporter:
@@ -146,6 +151,28 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--session", required=True, type=int, help="Session number to assign")
     ap.add_argument("--config-file", required=True, help="Config file path used for this import")
     ap.add_argument("--dry-run", action="store_true", help="Validate and report without copying files into pipeline layout")
+    ap.add_argument(
+        "--make-nordic-test-sessions",
+        action="store_true",
+        help="Deprecated pilot layout: session_1=NORDIC-denoised task data, session_2=original task data.",
+    )
+    ap.add_argument(
+        "--nordic",
+        action="store_true",
+        help="Run NORDIC on detected task/rest echoes and write denoised magnitudes into the requested session; phase companions are used when available, otherwise magnitude-only NORDIC is used.",
+    )
+    ap.add_argument("--nordic-code-dir", default=str(Path(__file__).resolve().parent / "nordic"), help="Directory containing NIFTI_NORDIC.m")
+    ap.add_argument("--nordic-matlab-bin", default="matlab", help="MATLAB executable for NORDIC")
+    ap.add_argument(
+        "--prepare-nordic-commands-only",
+        action="store_true",
+        help="Stage NORDIC outputs and write run_nordic_commands.sh, but do not launch MATLAB from Python.",
+    )
+    ap.add_argument(
+        "--import-work-subdir",
+        default="",
+        help="Optional subdirectory under subject/import for staging/report/manifest outputs, useful for multi-visit imports.",
+    )
     return ap.parse_args()
 
 
@@ -209,6 +236,27 @@ def parse_nifti_volumes(path: Path) -> int:
     return 1
 
 
+def parse_nifti_dims(path: Path) -> Tuple[int, ...]:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rb") as fh:
+        header = fh.read(348)
+    if len(header) < 56:
+        raise ImportAbort(f"NIfTI header too short: {path}")
+
+    sizeof_hdr = struct.unpack("<I", header[:4])[0]
+    endian = "<"
+    if sizeof_hdr != 348:
+        sizeof_hdr_be = struct.unpack(">I", header[:4])[0]
+        if sizeof_hdr_be != 348:
+            raise ImportAbort(f"Invalid NIfTI header size for {path}")
+        endian = ">"
+    dims = struct.unpack(endian + "8h", header[40:56])
+    ndim = max(int(dims[0]), 0)
+    if ndim == 0:
+        return ()
+    return tuple(max(int(d), 1) for d in dims[1 : ndim + 1])
+
+
 def parse_series_number(value: object, fallback_name: str) -> int:
     if isinstance(value, int):
         return value
@@ -241,13 +289,26 @@ def build_record(nii_path: Path, json_path: Path, filecount_images: Optional[int
     )
 
 
+def is_phase_record(record: SeriesRecord) -> bool:
+    return record.basename.endswith("_ph.nii.gz") or "P" in record.image_type or "PHASE" in record.image_type
+
+
+def strip_phase_suffix(desc: str) -> str:
+    return re.sub(r"_Pha$", "", desc)
+
+
 def classify_record(record: SeriesRecord, cfg: ProtocolConfig) -> Tuple[str, str]:
     desc = record.series_description
+    if is_phase_record(record):
+        mag_desc = strip_phase_suffix(desc)
+        if re.search(cfg.sbref_regex, mag_desc):
+            return "sbref_phase", "matched SBref phase companion"
+        if re.search(cfg.task_regex, mag_desc):
+            return "task_phase", "matched task phase companion"
+        return "ignored", "phase image"
     for pat in cfg.ignore_regexes:
         if re.search(pat, desc):
             return "ignored", f"matched ignore regex: {pat}"
-    if record.basename.endswith("_ph.nii.gz") or "P" in record.image_type:
-        return "ignored", "phase image"
     if re.search(cfg.t1w_regex, desc):
         return "t1w", "matched T1w regex"
     if re.search(cfg.t2w_regex, desc):
@@ -372,14 +433,23 @@ def group_multi_echo(
         for rec in group_sorted:
             ensure(rec.file_size >= min_bytes, f"{role_name} file too small: {rec.nii_path} ({rec.file_size} bytes < {min_bytes})")
 
-        vols = sorted({int(r.n_volumes) for r in group_sorted})
-        if len(vols) > 1:
+        if expect_vols > 0:
+            for rec in group_sorted:
+                if rec.n_volumes < expect_vols:
+                    raise ImportAbort(f"{role_name} expected at least {expect_vols} volume(s), found {rec.n_volumes}: {rec.nii_path}")
+                if rec.n_volumes > expect_vols:
+                    rec.target_n_volumes = expect_vols
+                    rec.noise_volumes_last = int(rec.n_volumes) - int(expect_vols)
+
+        effective_vols = sorted({int(r.target_n_volumes or r.n_volumes) for r in group_sorted})
+        if len(effective_vols) > 1:
             if echo_dim4_policy == "truncate_to_min":
-                min_vol = int(min(vols))
+                min_vol = int(min(effective_vols))
                 for rec in group_sorted:
-                    rec.target_n_volumes = min_vol
+                    if rec.target_n_volumes is None or rec.target_n_volumes > min_vol:
+                        rec.target_n_volumes = min_vol
             else:
-                names = ", ".join(f"E{int(r.echo_number or 0)}={int(r.n_volumes)}" for r in group_sorted)
+                names = ", ".join(f"E{int(r.echo_number or 0)}={int(r.target_n_volumes or r.n_volumes)}" for r in group_sorted)
                 raise ImportAbort(
                     f"{role_name} series {series_number} has mismatched echo dim4/timepoints ({names}). "
                     "This often indicates incomplete transfer. Re-import from source or re-run with IMPORT_ECHO_DIM4_POLICY=truncate_to_min to force truncation to min timepoints."
@@ -387,10 +457,35 @@ def group_multi_echo(
 
         if expect_vols > 0 and echo_dim4_policy != "truncate_to_min":
             for rec in group_sorted:
-                ensure(rec.n_volumes == expect_vols, f"{role_name} expected {expect_vols} volume(s), found {rec.n_volumes}: {rec.nii_path}")
+                ensure(
+                    int(rec.target_n_volumes or rec.n_volumes) == expect_vols,
+                    f"{role_name} expected {expect_vols} retained volume(s), found {rec.n_volumes}: {rec.nii_path}",
+                )
 
         sorted_groups.append(group_sorted)
     return sorted(sorted_groups, key=lambda group: (group[0].series_number, group[0].acquisition_time))
+
+
+def validate_phase_groups(
+    mag_groups: Sequence[Sequence[SeriesRecord]],
+    phase_groups: Sequence[Sequence[SeriesRecord]],
+    role_name: str,
+) -> None:
+    ensure(len(phase_groups) == len(mag_groups), f"Expected {len(mag_groups)} {role_name} phase groups, found {len(phase_groups)}")
+    for run_idx, (mag_group, phase_group) in enumerate(zip(mag_groups, phase_groups), start=1):
+        ensure(len(phase_group) == len(mag_group), f"{role_name} run {run_idx} phase echo count mismatch")
+        for mag, phase in zip(mag_group, phase_group):
+            echo = int(mag.echo_number or 0)
+            ensure(int(phase.echo_number or 0) == echo, f"{role_name} run {run_idx} E{echo} phase echo mismatch")
+            mag_retained = int(mag.target_n_volumes or mag.n_volumes)
+            phase_retained = int(phase.target_n_volumes or phase.n_volumes)
+            ensure(
+                phase_retained == mag_retained,
+                f"{role_name} run {run_idx} E{echo} phase retained-volume mismatch: mag={mag_retained} phase={phase_retained}",
+            )
+            if mag.echo_time is not None and phase.echo_time is not None:
+                ensure(abs(float(mag.echo_time) - float(phase.echo_time)) < 1e-9, f"{role_name} run {run_idx} E{echo} phase EchoTime mismatch")
+            ensure(strip_phase_suffix(phase.series_description) == mag.series_description, f"{role_name} run {run_idx} E{echo} phase description mismatch")
 
 
 def format_group(group: Sequence[SeriesRecord]) -> str:
@@ -403,8 +498,9 @@ def format_group(group: Sequence[SeriesRecord]) -> str:
     )
 
 
-def prepare_output_paths(subject_dir: Path, session: int, cfg: ProtocolConfig) -> Dict[str, Path]:
-    import_dir = subject_dir / "import"
+def prepare_output_paths(subject_dir: Path, session: int, cfg: ProtocolConfig, import_work_subdir: str = "") -> Dict[str, Path]:
+    import_root = subject_dir / "import"
+    import_dir = import_root / import_work_subdir if import_work_subdir else import_root
     staging_dir = import_dir / "dcm2niix"
     report_path = import_dir / "import_report.txt"
     manifest_path = import_dir / "import_manifest.tsv"
@@ -443,15 +539,310 @@ def copy_with_sidecar(
         return
     dst_nii.parent.mkdir(parents=True, exist_ok=True)
     if truncate_to_vols is not None and parse_nifti_volumes(src_nii) > int(truncate_to_vols):
-        if shutil.which("fslroi") is None:
-            raise ImportAbort("Echo-dim4 truncation requested but fslroi is not available on PATH")
-        cmd = ["fslroi", str(src_nii), str(dst_nii), "0", str(int(truncate_to_vols))]
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if proc.returncode != 0:
-            raise ImportAbort(f"fslroi truncation failed (exit {proc.returncode}) for {src_nii}: {proc.stdout}")
+        extract_nifti_volumes(src_nii, dst_nii, 0, int(truncate_to_vols), "truncation")
     else:
         shutil.copy2(src_nii, dst_nii)
     shutil.copy2(src_json, dst_json)
+
+
+def extract_nifti_volumes(src_nii: Path, dst_nii: Path, start: int, count: int, label: str) -> None:
+    if shutil.which("fslroi") is None:
+        raise ImportAbort(f"{label} requested but fslroi is not available on PATH")
+    dst_nii.parent.mkdir(parents=True, exist_ok=True)
+    cmd = ["fslroi", str(src_nii), str(dst_nii), str(int(start)), str(int(count))]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.returncode != 0:
+        raise ImportAbort(f"fslroi {label} failed (exit {proc.returncode}) for {src_nii}: {proc.stdout}")
+
+
+def write_json_sidecar_copy(src_json: Path, dst_json: Path, updates: dict, dry_run: bool, reporter: Reporter) -> None:
+    reporter.log(f"[json] copy/update {src_json} -> {dst_json}")
+    if dry_run:
+        return
+    data = read_json(src_json)
+    data.update(updates)
+    dst_json.parent.mkdir(parents=True, exist_ok=True)
+    dst_json.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+
+
+def save_trailing_noise_series(
+    record: SeriesRecord,
+    main_dst_nii: Path,
+    dry_run: bool,
+    reporter: Reporter,
+) -> Optional[Path]:
+    if int(record.noise_volumes_last) <= 0:
+        return None
+    start = int(record.target_n_volumes or (record.n_volumes - record.noise_volumes_last))
+    count = int(record.noise_volumes_last)
+    dst_dir = main_dst_nii.parent / "ImportProvenance" / "NoRFVolumes"
+    dst_nii = dst_dir / f"{main_dst_nii.name[:-7]}_noRF.nii.gz"
+    dst_json = json_path_for_nii(dst_nii)
+    ensure_dest_absent(dst_nii)
+    ensure_dest_absent(dst_json)
+    reporter.log(f"[norf] save trailing no-RF/noise volumes {record.nii_path} -> {dst_nii} start={start} count={count}")
+    if dry_run:
+        return dst_nii
+    extract_nifti_volumes(record.nii_path, dst_nii, start, count, "trailing no-RF/noise volume extraction")
+    write_json_sidecar_copy(
+        record.json_path,
+        dst_json,
+        {
+            "PipelineProvenanceOnly": True,
+            "PipelineNoRFVolumes": True,
+            "PipelineNoRFVolumeStart": start,
+            "PipelineNoRFVolumeCount": count,
+            "PipelineNoRFSourceFile": str(record.nii_path),
+        },
+        dry_run,
+        reporter,
+    )
+    main_dst_json = json_path_for_nii(main_dst_nii)
+    if main_dst_json.is_file():
+        data = read_json(main_dst_json)
+        data.update(
+            {
+                "PipelineTrailingNoRFVolumesExcised": count,
+                "PipelineTrailingNoRFVolumeStart": start,
+            }
+        )
+        main_dst_json.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    return dst_nii
+
+
+def stage_nordic_source(
+    record: SeriesRecord,
+    stage_dir: Path,
+    stem: str,
+    dry_run: bool,
+    reporter: Reporter,
+) -> Path:
+    target_vols = record.target_n_volumes
+    if target_vols is None or parse_nifti_volumes(record.nii_path) <= int(target_vols):
+        return record.nii_path
+    staged = stage_dir / f"{stem}.nii.gz"
+    ensure_dest_absent(staged)
+    reporter.log(f"[nordic] stage trimmed input: {record.nii_path} -> {staged} target_vols={target_vols}")
+    if not dry_run:
+        extract_nifti_volumes(record.nii_path, staged, 0, int(target_vols), "NORDIC input trimming")
+    return staged
+
+
+def phase_path_for_magnitude(dst_nii: Path) -> Path:
+    ensure(dst_nii.name.endswith(".nii.gz"), f"Expected .nii.gz path: {dst_nii}")
+    return dst_nii.with_name(dst_nii.name[:-7] + f"{PHASE_SUFFIX}.nii.gz")
+
+
+def json_path_for_nii(nii_path: Path) -> Path:
+    ensure(nii_path.name.endswith(".nii.gz"), f"Expected .nii.gz path: {nii_path}")
+    return nii_path.with_name(nii_path.name[:-7] + ".json")
+
+
+def copy_phase_with_sidecar(
+    phase_record: SeriesRecord,
+    dst_mag_nii: Path,
+    dry_run: bool,
+    reporter: Reporter,
+) -> Tuple[Path, Path]:
+    dst_phase_nii = phase_path_for_magnitude(dst_mag_nii)
+    dst_phase_json = json_path_for_nii(dst_phase_nii)
+    copy_with_sidecar(phase_record.nii_path, phase_record.json_path, dst_phase_nii, dst_phase_json, dry_run, reporter, phase_record.target_n_volumes)
+    return dst_phase_nii, dst_phase_json
+
+
+def write_json(path: Path, data: dict, dry_run: bool, reporter: Reporter) -> None:
+    reporter.log(f"[json] write {path}")
+    if dry_run:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+
+
+def matlab_quote(value: Path | str) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def nordic_expected_output(out_prefix: Path) -> Path:
+    return out_prefix.with_name(out_prefix.name + ".nii.gz")
+
+
+def build_nordic_expr(repo_lib_dir: Path, nordic_code_dir: Path, mag: Path, phase: Optional[Path], out_prefix: Path, log_path: Path) -> str:
+    phase_arg = "" if phase is None else str(phase)
+    return (
+        f"addpath({matlab_quote(repo_lib_dir)}); "
+        f"run_nordic_mefmri({matlab_quote(mag)}, {matlab_quote(phase_arg)}, "
+        f"{matlab_quote(out_prefix)}, {matlab_quote(nordic_code_dir)}, {matlab_quote(log_path)})"
+    )
+
+
+def build_nordic_shell_line(matlab_bin: str, repo_lib_dir: Path, nordic_code_dir: Path, mag: Path, phase: Optional[Path], out_prefix: Path, log_path: Path) -> str:
+    expr = build_nordic_expr(repo_lib_dir, nordic_code_dir, mag, phase, out_prefix, log_path)
+    return f"{shlex.quote(matlab_bin)} -batch {shlex.quote(expr)}"
+
+
+def build_nordic_command(matlab_bin: str, repo_lib_dir: Path, nordic_code_dir: Path, mag: Path, phase: Optional[Path], out_prefix: Path, log_path: Path) -> List[str]:
+    expr = build_nordic_expr(repo_lib_dir, nordic_code_dir, mag, phase, out_prefix, log_path)
+    # MATLAB activation/licensing can fail when launched directly by Python's
+    # subprocess on this workstation, while the same -batch call succeeds from
+    # an interactive shell. Keep the shell boundary explicit and quoted.
+    shell_cmd = f"exec {shlex.quote(matlab_bin)} -batch {shlex.quote(expr)}"
+    return ["bash", "-lc", shell_cmd]
+
+
+def run_nordic_pair(
+    matlab_bin: str,
+    repo_lib_dir: Path,
+    nordic_code_dir: Path,
+    mag: Path,
+    phase: Optional[Path],
+    out_prefix: Path,
+    log_path: Path,
+    dry_run: bool,
+    reporter: Reporter,
+) -> Path:
+    cmd = build_nordic_command(matlab_bin, repo_lib_dir, nordic_code_dir, mag, phase, out_prefix, log_path)
+    reporter.log(f"[nordic] MATLAB command: {' '.join(cmd)}")
+    if dry_run:
+        return nordic_expected_output(out_prefix)
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if proc.stdout:
+        reporter.log(proc.stdout.rstrip())
+    if proc.returncode != 0:
+        raise ImportAbort(f"NORDIC failed with exit code {proc.returncode}: {mag}")
+    out_nii = nordic_expected_output(out_prefix)
+    ensure(out_nii.is_file(), f"NORDIC output missing after MATLAB completed: {out_nii}")
+    ensure(parse_nifti_dims(out_nii) == parse_nifti_dims(mag), f"NORDIC output dimensions differ from input: {out_nii}")
+    ensure(parse_nifti_volumes(out_nii) == parse_nifti_volumes(mag), f"NORDIC output volume count differs from input: {out_nii}")
+    return out_nii
+
+
+def write_nordic_json(
+    src_json: Path,
+    dst_json: Path,
+    src_mag: Path,
+    src_phase: Optional[Path],
+    dry_run: bool,
+    reporter: Reporter,
+    *,
+    source_noise_volumes_last: int = 0,
+) -> None:
+    data = read_json(src_json)
+    updates = {
+        "Denoising": "NORDIC",
+        "NORDICNoiseVolumeLast": 0,
+        "NORDICUsedMagnitude": True,
+        "NORDICUsedPhase": src_phase is not None,
+        "NORDICSourceMagnitude": str(src_mag),
+        "NORDICTrailingNoRFVolumesPresentInSource": int(source_noise_volumes_last),
+        "NORDICTrailingNoRFVolumesExcised": int(source_noise_volumes_last),
+        "NORDICNoRFVolumesUsed": False,
+    }
+    if src_phase is not None:
+        updates["NORDICSourcePhase"] = str(src_phase)
+    data.update(updates)
+    write_json(dst_json, data, dry_run, reporter)
+
+
+def write_nordic_marker(
+    run_dir: Path,
+    rows: Sequence[Tuple[int, Path, Optional[Path], Path]],
+    dry_run: bool,
+    reporter: Reporter,
+    *,
+    used_phase: Optional[bool] = None,
+    noise_volume_last: int = 0,
+    excised_noise_volume_last: int = 0,
+) -> None:
+    if not rows:
+        return
+    marker = run_dir / "NORDIC_DENOISING.txt"
+    if used_phase is None:
+        used_phase = any(src_phase is not None for _, _, src_phase, _ in rows)
+    mode = "magnitude+phase" if used_phase else "magnitude-only"
+    reporter.log(f"[nordic] write marker: {marker}")
+    if dry_run:
+        return
+    run_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "NORDIC denoising: yes",
+        f"Mode: {mode}",
+        "Used magnitude: yes",
+        f"Used phase: {'yes' if used_phase else 'no'}",
+        f"Trailing no-RF/noise volumes present in source: {'yes' if int(excised_noise_volume_last) > 0 else 'no'}",
+        f"Trailing no-RF/noise volumes excised from main run: {int(excised_noise_volume_last)}",
+        f"No-RF/noise volumes used by NORDIC: {'yes' if int(noise_volume_last) > 0 else 'no'}",
+        f"Trailing no-RF/noise volumes used by NORDIC: {int(noise_volume_last)}",
+        "",
+        "Echo outputs:",
+    ]
+    for echo, src_mag, src_phase, out_mag in rows:
+        lines.append(f"  E{echo}: {out_mag}")
+        lines.append(f"    source magnitude: {src_mag}")
+        if src_phase is not None:
+            lines.append(f"    source phase: {src_phase}")
+    marker.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_nordic_command_script(
+    script_path: Path,
+    qc_path: Path,
+    rows: Sequence[Tuple[int, int, Path, Optional[Path], Path, str]],
+    dry_run: bool,
+    reporter: Reporter,
+) -> None:
+    reporter.log(f"[nordic] write command script: {script_path}")
+    if dry_run:
+        return
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "",
+        f"QC_PATH={shlex.quote(str(qc_path))}",
+        "printf 'run\\techo\\tinput_dims\\toutput_dims\\tvolumes\\tstatus\\n' > \"$QC_PATH\"",
+        "",
+    ]
+
+    for run_idx, echo, mag, phase, out_nii, command_line in rows:
+        log_label = f"S1_R{run_idx}_E{echo}"
+        phase_label = "<none; magnitude-only>" if phase is None else str(phase)
+        lines.extend(
+            [
+                f"echo '[nordic-script] {log_label}'",
+                f"echo '[nordic-script] magnitude: {mag}'",
+                f"echo '[nordic-script] phase: {phase_label}'",
+                command_line,
+                (
+                    "python3 - "
+                    f"{shlex.quote(str(mag))} {shlex.quote(str(out_nii))} "
+                    f"\"$QC_PATH\" {run_idx} {echo} <<'PY'"
+                ),
+                "import gzip, struct, sys",
+                "mag, out, qc, run_idx, echo = sys.argv[1:6]",
+                "def dims(path):",
+                "    opener = gzip.open if path.endswith('.gz') else open",
+                "    with opener(path, 'rb') as f:",
+                "        hdr = f.read(348)",
+                "    endian = '<' if struct.unpack('<I', hdr[:4])[0] == 348 else '>'",
+                "    d = struct.unpack(endian + '8h', hdr[40:56])",
+                "    return tuple(int(x) for x in d[1:int(d[0]) + 1])",
+                "mi = dims(mag)",
+                "mo = dims(out)",
+                "if mi != mo:",
+                "    raise SystemExit(f'NORDIC dimension mismatch: {mag} {mi} != {out} {mo}')",
+                "vols = mi[3] if len(mi) > 3 else 1",
+                "with open(qc, 'a', encoding='utf-8') as f:",
+                "    f.write(f'{run_idx}\\t{echo}\\t' + 'x'.join(map(str, mi)) + '\\t' + 'x'.join(map(str, mo)) + f'\\t{vols}\\tOK\\n')",
+                "PY",
+                "",
+            ]
+        )
+
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text("\n".join(lines), encoding="utf-8")
+    script_path.chmod(0o755)
 
 
 def write_manifest(
@@ -487,6 +878,7 @@ def snapshot_config(config_file: Path, snapshot_path: Path, dry_run: bool) -> No
 def main() -> int:
     args = parse_args()
     cfg = ProtocolConfig.from_env()
+    use_nordic = bool(args.nordic or args.make_nordic_test_sessions or args.prepare_nordic_commands_only)
 
     raw_dir = Path(args.raw_dicom_dir).resolve()
     subject_dir = Path(args.subject_dir).resolve()
@@ -495,8 +887,9 @@ def main() -> int:
 
     ensure(raw_dir.is_dir(), f"Missing raw DICOM dir: {raw_dir}")
     ensure(session >= 1, f"Session must be >= 1, got {session}")
+    ensure(not args.import_work_subdir or not Path(args.import_work_subdir).is_absolute(), "--import-work-subdir must be relative")
 
-    paths = prepare_output_paths(subject_dir, session, cfg)
+    paths = prepare_output_paths(subject_dir, session, cfg, args.import_work_subdir)
     reporter = Reporter(paths["report_path"])
     try:
         reporter.log("[import] Strict raw import started")
@@ -507,13 +900,29 @@ def main() -> int:
         reporter.log(f"[import] Config file: {config_file}")
         reporter.log(f"[import] Dry run: {int(args.dry_run)}")
         reporter.log(f"[import] Echo dim4 policy: {cfg.echo_dim4_policy}")
+        reporter.log(f"[import] NORDIC enabled: {int(use_nordic)}")
+        reporter.log(f"[import] NORDIC test sessions: {int(args.make_nordic_test_sessions)}")
+        if args.import_work_subdir:
+            reporter.log(f"[import] Import work subdir: {args.import_work_subdir}")
+        if use_nordic and not args.make_nordic_test_sessions:
+            reporter.log("[import] NORDIC layout: denoised magnitudes written into requested session")
+        if args.make_nordic_test_sessions:
+            reporter.log("[import] NORDIC test layout: session_1=NORDIC, session_2=original")
+        if use_nordic:
+            reporter.log(f"[import] NORDIC code dir: {args.nordic_code_dir}")
+            reporter.log(f"[import] NORDIC MATLAB bin: {args.nordic_matlab_bin}")
 
         if subject_dir.exists():
             reporter.log(f"[import] Subject dir exists: {subject_dir}")
         else:
             reporter.log(f"[import] Subject dir will be created: {subject_dir}")
 
-        ensure(not paths["func_session_dir"].exists(), f"Target session already exists: {paths['func_session_dir']}")
+        if args.make_nordic_test_sessions:
+            for ses in (1, 2):
+                target_session = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{ses}"
+                ensure(not target_session.exists(), f"Target session already exists: {target_session}")
+        else:
+            ensure(not paths["func_session_dir"].exists(), f"Target session already exists: {paths['func_session_dir']}")
         if paths["staging_dir"].exists():
             raise ImportAbort(f"Import staging dir already exists: {paths['staging_dir']}")
 
@@ -554,6 +963,8 @@ def main() -> int:
         fmap_pa_records = [r for r in records if r.classification == "fmap_pa"]
         sbref_records = [r for r in records if r.classification == "sbref"]
         task_records = [r for r in records if r.classification == "task"]
+        task_phase_records = [r for r in records if r.classification == "task_phase"]
+        sbref_phase_records = [r for r in records if r.classification == "sbref_phase"]
 
         validate_singletons(t1w_records, cfg.expect_t1w_max_per_import, "T1w")
         validate_singletons(t2w_records, cfg.expect_t2w_max_per_import, "T2w")
@@ -577,17 +988,29 @@ def main() -> int:
 
         task_groups = group_multi_echo(task_records, cfg.expect_echoes_per_run, cfg.expect_task_volumes, cfg.min_bytes_task, cfg.func_file_prefix, cfg.echo_dim4_policy)
         sbref_groups = group_multi_echo(sbref_records, cfg.expect_echoes_per_run, cfg.expect_sbref_volumes, cfg.min_bytes_sbref, "SBref", cfg.echo_dim4_policy)
+        task_phase_groups = group_multi_echo(task_phase_records, cfg.expect_echoes_per_run, cfg.expect_task_volumes, 0, f"{cfg.func_file_prefix} phase", cfg.echo_dim4_policy)
+        sbref_phase_groups = group_multi_echo(sbref_phase_records, cfg.expect_echoes_per_run, cfg.expect_sbref_volumes, 0, "SBref phase", cfg.echo_dim4_policy)
 
         ensure(len(task_groups) == cfg.expect_task_runs_per_session, f"Expected {cfg.expect_task_runs_per_session} {cfg.func_dirname} runs, found {len(task_groups)}")
         expected_sbref_groups = cfg.expect_task_runs_per_session * cfg.expect_sbref_per_run
         ensure(len(sbref_groups) == expected_sbref_groups, f"Expected {expected_sbref_groups} SBref groups, found {len(sbref_groups)}")
+        if task_phase_groups:
+            validate_phase_groups(task_groups, task_phase_groups, cfg.func_file_prefix)
+        if sbref_phase_groups:
+            validate_phase_groups(sbref_groups, sbref_phase_groups, "SBref")
 
         reporter.log(f"[validate] {cfg.func_dirname} groups: {len(task_groups)}")
         for idx, group in enumerate(task_groups, start=1):
             reporter.log(f"[validate]   {cfg.func_dirname} run {idx}: {format_group(group)}")
+        reporter.log(f"[validate] {cfg.func_dirname} phase groups: {len(task_phase_groups)}")
+        for idx, group in enumerate(task_phase_groups, start=1):
+            reporter.log(f"[validate]   {cfg.func_dirname} phase run {idx}: {format_group(group)}")
         reporter.log(f"[validate] SBref groups: {len(sbref_groups)}")
         for idx, group in enumerate(sbref_groups, start=1):
             reporter.log(f"[validate]   SBref run {idx}: {format_group(group)}")
+        reporter.log(f"[validate] SBref phase groups: {len(sbref_phase_groups)}")
+        for idx, group in enumerate(sbref_phase_groups, start=1):
+            reporter.log(f"[validate]   SBref phase run {idx}: {format_group(group)}")
 
         manifest_rows: List[Tuple[str, int, str, str, str, str, int, int, str]] = []
 
@@ -620,35 +1043,271 @@ def main() -> int:
             copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
             manifest_rows.append(("t2w", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
-        for idx, rec in enumerate(sorted(fmap_ap_records, key=lambda r: (r.series_number, r.acquisition_time)), start=1):
-            dst_nii = subject_dir / "func" / "unprocessed" / cfg.func_dirname / "field_maps" / f"AP_S{session}_R{idx}.nii.gz"
-            dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
-            manifest_rows.append(("fmap_ap", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
-
-        for idx, rec in enumerate(sorted(fmap_pa_records, key=lambda r: (r.series_number, r.acquisition_time)), start=1):
-            dst_nii = subject_dir / "func" / "unprocessed" / cfg.func_dirname / "field_maps" / f"PA_S{session}_R{idx}.nii.gz"
-            dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
-            copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
-            manifest_rows.append(("fmap_pa", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
-
-        for run_idx, group in enumerate(task_groups, start=1):
-            run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{session}" / f"run_{run_idx}"
-            for rec in group:
-                echo = int(rec.echo_number or 0)
-                dst_nii = run_dir / f"{cfg.func_file_prefix}_S{session}_R{run_idx}_E{echo}.nii.gz"
+        fmap_sessions = (1, 2) if args.make_nordic_test_sessions else (session,)
+        for fmap_session in fmap_sessions:
+            for idx, rec in enumerate(sorted(fmap_ap_records, key=lambda r: (r.series_number, r.acquisition_time)), start=1):
+                dst_nii = subject_dir / "func" / "unprocessed" / cfg.func_dirname / "field_maps" / f"AP_S{fmap_session}_R{idx}.nii.gz"
                 dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
                 copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
-                manifest_rows.append(("task", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                manifest_rows.append(("fmap_ap", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
 
-        for run_idx, group in enumerate(sbref_groups, start=1):
-            run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{session}" / f"run_{run_idx}"
-            for rec in group:
-                echo = int(rec.echo_number or 0)
-                dst_nii = run_dir / f"SBref_S{session}_R{run_idx}_E{echo}.nii.gz"
+            for idx, rec in enumerate(sorted(fmap_pa_records, key=lambda r: (r.series_number, r.acquisition_time)), start=1):
+                dst_nii = subject_dir / "func" / "unprocessed" / cfg.func_dirname / "field_maps" / f"PA_S{fmap_session}_R{idx}.nii.gz"
                 dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
                 copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
-                manifest_rows.append(("sbref", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                manifest_rows.append(("fmap_pa", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+
+        if args.make_nordic_test_sessions:
+            original_session = 2
+            nordic_session = 1
+            repo_lib_dir = Path(__file__).resolve().parent
+            nordic_code_dir = Path(args.nordic_code_dir).resolve()
+            ensure(nordic_code_dir.is_dir(), f"Missing NORDIC code dir: {nordic_code_dir}")
+            ensure((nordic_code_dir / "NIFTI_NORDIC.m").is_file(), f"Missing NIFTI_NORDIC.m in {nordic_code_dir}")
+            nordic_log_dir = subject_dir / "import" / "nordic_logs"
+            nordic_qc_rows = [
+                "run\techo\toriginal_magnitude\tphase\tnordic_magnitude\tinput_dims\toutput_dims\tvolumes"
+            ]
+            nordic_command_rows: List[Tuple[int, int, Path, Optional[Path], Path, str]] = []
+
+            for run_idx, mag_group in enumerate(task_groups, start=1):
+                phase_group = task_phase_groups[run_idx - 1] if run_idx - 1 < len(task_phase_groups) else []
+                ensure(not phase_group or len(phase_group) == len(mag_group), f"{cfg.func_file_prefix} run {run_idx} phase echo count mismatch")
+                original_run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{original_session}" / f"run_{run_idx}"
+                nordic_run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{nordic_session}" / f"run_{run_idx}"
+                nordic_marker_rows: List[Tuple[int, Path, Optional[Path], Path]] = []
+                max_noise_last = max((int(rec.noise_volumes_last) for rec in mag_group), default=0)
+                for echo_idx, rec in enumerate(mag_group):
+                    phase_rec = phase_group[echo_idx] if phase_group else None
+                    echo = int(rec.echo_number or 0)
+                    original_nii = original_run_dir / f"{cfg.func_file_prefix}_S{original_session}_R{run_idx}_E{echo}.nii.gz"
+                    original_json = json_path_for_nii(original_nii)
+                    copy_with_sidecar(rec.nii_path, rec.json_path, original_nii, original_json, args.dry_run, reporter, rec.target_n_volumes)
+                    no_rf_nii = save_trailing_noise_series(rec, original_nii, args.dry_run, reporter)
+                    if no_rf_nii is not None:
+                        manifest_rows.append(("task_noRF", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(no_rf_nii), rec.noise_volumes_last, rec.file_size, "trailing no-RF/noise volumes saved for provenance only"))
+                    original_phase_nii = None
+                    if phase_rec is not None:
+                        original_phase_nii, _ = copy_phase_with_sidecar(phase_rec, original_nii, args.dry_run, reporter)
+                        phase_no_rf_nii = save_trailing_noise_series(phase_rec, original_phase_nii, args.dry_run, reporter)
+                        if phase_no_rf_nii is not None:
+                            manifest_rows.append(("task_phase_noRF", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(phase_no_rf_nii), phase_rec.noise_volumes_last, phase_rec.file_size, "trailing no-RF/noise phase volumes saved for provenance only"))
+                    manifest_rows.append(("task_original", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(original_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                    if phase_rec is not None and original_phase_nii is not None:
+                        manifest_rows.append(("task_phase_original", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(original_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
+
+                    nordic_nii = nordic_run_dir / f"{cfg.func_file_prefix}_S{nordic_session}_R{run_idx}_E{echo}.nii.gz"
+                    nordic_json = json_path_for_nii(nordic_nii)
+                    nordic_phase_nii = None
+                    if phase_rec is not None:
+                        nordic_phase_nii, _ = copy_phase_with_sidecar(phase_rec, nordic_nii, args.dry_run, reporter)
+                    out_prefix = nordic_nii.with_name(nordic_nii.name[:-7])
+                    nordic_log = nordic_log_dir / f"NORDIC_S{nordic_session}_R{run_idx}_E{echo}.log"
+                    if args.prepare_nordic_commands_only:
+                        command_line = build_nordic_shell_line(
+                            args.nordic_matlab_bin,
+                            repo_lib_dir,
+                            nordic_code_dir,
+                            original_nii,
+                            original_phase_nii,
+                            out_prefix,
+                            nordic_log,
+                        )
+                        reporter.log(f"[nordic] queued shell command: {command_line}")
+                        nordic_command_rows.append((run_idx, echo, original_nii, original_phase_nii, nordic_nii, command_line))
+                        out_nii = nordic_expected_output(out_prefix)
+                    else:
+                        out_nii = run_nordic_pair(
+                            args.nordic_matlab_bin,
+                            repo_lib_dir,
+                            nordic_code_dir,
+                            original_nii,
+                            original_phase_nii,
+                            out_prefix,
+                            nordic_log,
+                            args.dry_run,
+                            reporter,
+                        )
+                        if not args.dry_run:
+                            ensure(out_nii == nordic_nii, f"Unexpected NORDIC output path: {out_nii} != {nordic_nii}")
+                    write_nordic_json(rec.json_path, nordic_json, original_nii, original_phase_nii, args.dry_run, reporter, source_noise_volumes_last=rec.noise_volumes_last)
+                    manifest_rows.append(("task_nordic", rec.series_number, rec.series_description, str(original_nii), str(original_json), str(nordic_nii), rec.n_volumes, rec.file_size, "NORDIC denoised magnitude"))
+                    if phase_rec is not None and nordic_phase_nii is not None:
+                        manifest_rows.append(("task_phase_nordic", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(nordic_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
+                    nordic_qc_rows.append(
+                        f"{run_idx}\t{echo}\t{original_nii}\t{original_phase_nii if original_phase_nii is not None else 'MAG_ONLY'}\t{nordic_nii}\t"
+                        f"{'x'.join(map(str, parse_nifti_dims(rec.nii_path)))}\t"
+                        f"{'PENDING' if args.prepare_nordic_commands_only else ('DRYRUN' if args.dry_run else 'x'.join(map(str, parse_nifti_dims(nordic_nii))))}\t{rec.n_volumes}"
+                    )
+                    nordic_marker_rows.append((echo, original_nii, original_phase_nii, nordic_nii))
+                write_nordic_marker(nordic_run_dir, nordic_marker_rows, args.dry_run, reporter, excised_noise_volume_last=max_noise_last)
+
+            for branch_session in (nordic_session, original_session):
+                for run_idx, group in enumerate(sbref_groups, start=1):
+                    phase_group = sbref_phase_groups[run_idx - 1] if sbref_phase_groups else []
+                    run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{branch_session}" / f"run_{run_idx}"
+                    for echo_idx, rec in enumerate(group):
+                        echo = int(rec.echo_number or 0)
+                        dst_nii = run_dir / f"SBref_S{branch_session}_R{run_idx}_E{echo}.nii.gz"
+                        dst_json = json_path_for_nii(dst_nii)
+                        copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
+                        manifest_rows.append(("sbref", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                        if phase_group:
+                            phase_rec = phase_group[echo_idx]
+                            dst_phase_nii, _ = copy_phase_with_sidecar(phase_rec, dst_nii, args.dry_run, reporter)
+                            manifest_rows.append(("sbref_phase", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(dst_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
+
+            qc_path = subject_dir / "import" / "nordic_import_qc.tsv"
+            if args.prepare_nordic_commands_only:
+                write_nordic_command_script(
+                    subject_dir / "import" / "run_nordic_commands.sh",
+                    subject_dir / "import" / "nordic_execution_qc.tsv",
+                    nordic_command_rows,
+                    args.dry_run,
+                    reporter,
+                )
+            reporter.log(f"[nordic] write QC: {qc_path}")
+            if not args.dry_run:
+                qc_path.parent.mkdir(parents=True, exist_ok=True)
+                qc_path.write_text("\n".join(nordic_qc_rows) + "\n", encoding="utf-8")
+        elif use_nordic:
+            repo_lib_dir = Path(__file__).resolve().parent
+            nordic_code_dir = Path(args.nordic_code_dir).resolve()
+            ensure(nordic_code_dir.is_dir(), f"Missing NORDIC code dir: {nordic_code_dir}")
+            ensure((nordic_code_dir / "NIFTI_NORDIC.m").is_file(), f"Missing NIFTI_NORDIC.m in {nordic_code_dir}")
+            nordic_log_dir = paths["import_dir"] / "nordic_logs"
+            nordic_qc_rows = [
+                "session\trun\techo\tsource_magnitude\tphase\tnordic_magnitude\tinput_dims\toutput_dims\tvolumes"
+            ]
+            nordic_command_rows: List[Tuple[int, int, Path, Optional[Path], Path, str]] = []
+
+            for run_idx, mag_group in enumerate(task_groups, start=1):
+                phase_group = task_phase_groups[run_idx - 1] if run_idx - 1 < len(task_phase_groups) else []
+                ensure(not phase_group or len(phase_group) == len(mag_group), f"{cfg.func_file_prefix} run {run_idx} phase echo count mismatch")
+                run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{session}" / f"run_{run_idx}"
+                stage_dir = paths["import_dir"] / "nordic_inputs" / f"session_{session}" / f"run_{run_idx}"
+                nordic_marker_rows: List[Tuple[int, Path, Optional[Path], Path]] = []
+                max_noise_last = max((int(rec.noise_volumes_last) for rec in mag_group), default=0)
+                for echo_idx, rec in enumerate(mag_group):
+                    phase_rec = phase_group[echo_idx] if phase_group else None
+                    echo = int(rec.echo_number or 0)
+                    nordic_nii = run_dir / f"{cfg.func_file_prefix}_S{session}_R{run_idx}_E{echo}.nii.gz"
+                    nordic_json = json_path_for_nii(nordic_nii)
+                    no_rf_nii = save_trailing_noise_series(rec, nordic_nii, args.dry_run, reporter)
+                    if no_rf_nii is not None:
+                        manifest_rows.append(("task_noRF", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(no_rf_nii), rec.noise_volumes_last, rec.file_size, "trailing no-RF/noise volumes saved for provenance only"))
+                    nordic_phase_nii = None
+                    if phase_rec is not None:
+                        nordic_phase_nii, _ = copy_phase_with_sidecar(phase_rec, nordic_nii, args.dry_run, reporter)
+                        phase_no_rf_nii = save_trailing_noise_series(phase_rec, nordic_phase_nii, args.dry_run, reporter)
+                        if phase_no_rf_nii is not None:
+                            manifest_rows.append(("task_phase_noRF", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(phase_no_rf_nii), phase_rec.noise_volumes_last, phase_rec.file_size, "trailing no-RF/noise phase volumes saved for provenance only"))
+                    nordic_input_nii = stage_nordic_source(rec, stage_dir, f"{cfg.func_file_prefix}_S{session}_R{run_idx}_E{echo}", args.dry_run, reporter)
+                    nordic_phase_input_nii = None
+                    if phase_rec is not None:
+                        nordic_phase_input_nii = stage_nordic_source(phase_rec, stage_dir, f"{cfg.func_file_prefix}_S{session}_R{run_idx}_E{echo}_phase", args.dry_run, reporter)
+                    out_prefix = nordic_nii.with_name(nordic_nii.name[:-7])
+                    nordic_log = nordic_log_dir / f"NORDIC_S{session}_R{run_idx}_E{echo}.log"
+                    if args.prepare_nordic_commands_only:
+                        command_line = build_nordic_shell_line(
+                            args.nordic_matlab_bin,
+                            repo_lib_dir,
+                            nordic_code_dir,
+                            nordic_input_nii,
+                            nordic_phase_input_nii,
+                            out_prefix,
+                            nordic_log,
+                        )
+                        reporter.log(f"[nordic] queued shell command: {command_line}")
+                        nordic_command_rows.append((run_idx, echo, nordic_input_nii, nordic_phase_input_nii, nordic_nii, command_line))
+                        out_nii = nordic_expected_output(out_prefix)
+                    else:
+                        out_nii = run_nordic_pair(
+                            args.nordic_matlab_bin,
+                            repo_lib_dir,
+                            nordic_code_dir,
+                            nordic_input_nii,
+                            nordic_phase_input_nii,
+                            out_prefix,
+                            nordic_log,
+                            args.dry_run,
+                            reporter,
+                        )
+                        if not args.dry_run:
+                            ensure(out_nii == nordic_nii, f"Unexpected NORDIC output path: {out_nii} != {nordic_nii}")
+                    write_nordic_json(rec.json_path, nordic_json, nordic_input_nii, nordic_phase_input_nii, args.dry_run, reporter, source_noise_volumes_last=rec.noise_volumes_last)
+                    manifest_rows.append(("task_nordic", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(nordic_nii), rec.n_volumes, rec.file_size, "NORDIC denoised magnitude"))
+                    if phase_rec is not None and nordic_phase_nii is not None:
+                        manifest_rows.append(("task_phase", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(nordic_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
+                    nordic_qc_rows.append(
+                        f"{session}\t{run_idx}\t{echo}\t{nordic_input_nii}\t{nordic_phase_input_nii if nordic_phase_input_nii is not None else 'MAG_ONLY'}\t{nordic_nii}\t"
+                        f"{'x'.join(map(str, parse_nifti_dims(rec.nii_path)))}\t"
+                        f"{'PENDING' if args.prepare_nordic_commands_only else ('DRYRUN' if args.dry_run else 'x'.join(map(str, parse_nifti_dims(nordic_nii))))}\t{rec.n_volumes}"
+                    )
+                    nordic_marker_rows.append((echo, nordic_input_nii, nordic_phase_input_nii, nordic_nii))
+                write_nordic_marker(run_dir, nordic_marker_rows, args.dry_run, reporter, excised_noise_volume_last=max_noise_last)
+
+            for run_idx, group in enumerate(sbref_groups, start=1):
+                phase_group = sbref_phase_groups[run_idx - 1] if sbref_phase_groups else []
+                run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{session}" / f"run_{run_idx}"
+                for echo_idx, rec in enumerate(group):
+                    echo = int(rec.echo_number or 0)
+                    dst_nii = run_dir / f"SBref_S{session}_R{run_idx}_E{echo}.nii.gz"
+                    dst_json = json_path_for_nii(dst_nii)
+                    copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
+                    manifest_rows.append(("sbref", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                    if phase_group:
+                        phase_rec = phase_group[echo_idx]
+                        dst_phase_nii, _ = copy_phase_with_sidecar(phase_rec, dst_nii, args.dry_run, reporter)
+                        manifest_rows.append(("sbref_phase", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(dst_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
+
+            qc_path = paths["import_dir"] / "nordic_import_qc.tsv"
+            if args.prepare_nordic_commands_only:
+                write_nordic_command_script(
+                    paths["import_dir"] / "run_nordic_commands.sh",
+                    paths["import_dir"] / "nordic_execution_qc.tsv",
+                    nordic_command_rows,
+                    args.dry_run,
+                    reporter,
+                )
+            reporter.log(f"[nordic] write QC: {qc_path}")
+            if not args.dry_run:
+                qc_path.parent.mkdir(parents=True, exist_ok=True)
+                qc_path.write_text("\n".join(nordic_qc_rows) + "\n", encoding="utf-8")
+        else:
+            for run_idx, group in enumerate(task_groups, start=1):
+                phase_group = task_phase_groups[run_idx - 1] if task_phase_groups else []
+                run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{session}" / f"run_{run_idx}"
+                for echo_idx, rec in enumerate(group):
+                    echo = int(rec.echo_number or 0)
+                    dst_nii = run_dir / f"{cfg.func_file_prefix}_S{session}_R{run_idx}_E{echo}.nii.gz"
+                    dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
+                    copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
+                    no_rf_nii = save_trailing_noise_series(rec, dst_nii, args.dry_run, reporter)
+                    if no_rf_nii is not None:
+                        manifest_rows.append(("task_noRF", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(no_rf_nii), rec.noise_volumes_last, rec.file_size, "trailing no-RF/noise volumes saved for provenance only"))
+                    manifest_rows.append(("task", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                    if phase_group:
+                        phase_rec = phase_group[echo_idx]
+                        dst_phase_nii, _ = copy_phase_with_sidecar(phase_rec, dst_nii, args.dry_run, reporter)
+                        phase_no_rf_nii = save_trailing_noise_series(phase_rec, dst_phase_nii, args.dry_run, reporter)
+                        if phase_no_rf_nii is not None:
+                            manifest_rows.append(("task_phase_noRF", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(phase_no_rf_nii), phase_rec.noise_volumes_last, phase_rec.file_size, "trailing no-RF/noise phase volumes saved for provenance only"))
+                        manifest_rows.append(("task_phase", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(dst_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
+
+            for run_idx, group in enumerate(sbref_groups, start=1):
+                phase_group = sbref_phase_groups[run_idx - 1] if sbref_phase_groups else []
+                run_dir = subject_dir / "func" / "unprocessed" / cfg.func_dirname / f"session_{session}" / f"run_{run_idx}"
+                for echo_idx, rec in enumerate(group):
+                    echo = int(rec.echo_number or 0)
+                    dst_nii = run_dir / f"SBref_S{session}_R{run_idx}_E{echo}.nii.gz"
+                    dst_json = dst_nii.with_name(dst_nii.name[:-7] + ".json")
+                    copy_with_sidecar(rec.nii_path, rec.json_path, dst_nii, dst_json, args.dry_run, reporter, rec.target_n_volumes)
+                    manifest_rows.append(("sbref", rec.series_number, rec.series_description, str(rec.nii_path), str(rec.json_path), str(dst_nii), rec.n_volumes, rec.file_size, rec.classification_reason))
+                    if phase_group:
+                        phase_rec = phase_group[echo_idx]
+                        dst_phase_nii, _ = copy_phase_with_sidecar(phase_rec, dst_nii, args.dry_run, reporter)
+                        manifest_rows.append(("sbref_phase", phase_rec.series_number, phase_rec.series_description, str(phase_rec.nii_path), str(phase_rec.json_path), str(dst_phase_nii), phase_rec.n_volumes, phase_rec.file_size, phase_rec.classification_reason))
 
         write_manifest(paths["manifest_path"], manifest_rows)
         snapshot_config(config_file, paths["config_snapshot"], args.dry_run)

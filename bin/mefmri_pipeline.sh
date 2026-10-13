@@ -22,7 +22,9 @@ Subject="$(basename "$SubjectDir")"
 StudyFolder="$(dirname "$SubjectDir")"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_CONFIG="$SCRIPT_DIR/../config/mefmri_wrapper_config.sh"
+# Give copied study configs the installation root before they define resource paths.
+PFM_MEFMRI_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_CONFIG="$PFM_MEFMRI_ROOT/config/mefmri_wrapper_config.sh"
 ConfigFile="${ConfigFileArg:-${CONFIG_FILE:-$DEFAULT_CONFIG}}"
 
 if [ ! -f "$ConfigFile" ]; then
@@ -50,8 +52,8 @@ fi
 : "${MEDIR:=$(cd "$SCRIPT_DIR/.." && pwd)}"
 : "${EnvironmentScript:=$MEDIR/HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh}"
 : "${START_SESSION:=1}"
-: "${START_FROM_MODULE:=validate}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update
-: "${STOP_AFTER_MODULE:=}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update
+: "${START_FROM_MODULE:=validate}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update|tans
+: "${STOP_AFTER_MODULE:=}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update|tans
 : "${PIPELINE_SKIP_ANAT:=0}" # 0|1 (used by FUNC_DIRNAME=All parent loop to avoid rerunning anatomy per task)
 
 # Optional post-config overrides (used internally by the All-tasks driver).
@@ -66,6 +68,8 @@ fi
 : "${FUNC_MEDIC_MODULE:=$MEDIR/modules/mefmri_func_medic.sh}"
 : "${FUNC_MEDIC_COREG_MODULE:=$MEDIR/modules/mefmri_func_coreg_medic.sh}"
 : "${FUNC_MEDIC_HEADMOTION_MODULE:=$MEDIR/modules/mefmri_func_headmotion_medic.sh}"
+: "${FUNC_QC_COREG_SDC_MODULE:=$MEDIR/modules/mefmri_func_qc_coreg_sdc.sh}"
+: "${FUNC_QC_MOTION_GRAYPLOTS_MODULE:=$MEDIR/modules/mefmri_func_qc_motion_grayplots.sh}"
 : "${FUNC_COREG_MODULE:=$MEDIR/modules/mefmri_func_coreg.sh}"
 : "${FUNC_HEADMOTION_MODULE:=$MEDIR/modules/mefmri_func_headmotion.sh}"
 : "${FUNC_MEICA_MODULE:=$MEDIR/modules/mefmri_func_meica.sh}"
@@ -78,6 +82,7 @@ fi
 : "${FUNC_PFM_MODULE:=$MEDIR/modules/mefmri_func_pfm.sh}"
 : "${FUNC_PFM_INFOMAP_UPDATE_MODULE:=$MEDIR/modules/mefmri_func_pfm_infomap_update.sh}"
 : "${FUNC_CRAWLING_SEED_FC_MODULE:=$MEDIR/modules/mefmri_func_crawling_seed_fc.sh}"
+: "${FUNC_TANS_MODULE:=$MEDIR/modules/mefmri_func_tans.sh}"
 
 # Global processing knobs.
 : "${CHARM_BIN:=}" # optional explicit path passed to CHARM module
@@ -91,14 +96,23 @@ fi
 : "${NSI_ENABLE:=1}" # 0|1
 : "${PFM_ENABLE:=1}" # 0|1
 : "${PFM_INFOMAP_UPDATE_ENABLE:=0}" # 0|1
-: "${CRAWLING_SEED_FC_ENABLE:=0}" # 0|1
+: "${TANS_ENABLE:=0}" # 0|1
+: "${CRAWLING_SEED_FC_ENABLE:=1}" # 0|1
 : "${RUN_CONFIG_SNAPSHOT:=1}" # 0|1
+: "${QC_OUTPUT_DIRNAME:=QC}"
+: "${QC_VALIDATION_ENABLE:=1}" # 0|1
 : "${FUNC_NOFIELDMAP_MODE:=0}" # 0|1
 : "${DISTORTION_CORRECTION_MODE:=topup}" # topup|direct_b0|medic|none
+: "${COREG_SDC_QC_ENABLE:=1}" # 0|1
+: "${COREG_SDC_QC_STRICT:=0}" # 0|1
+: "${MOTION_GRAYPLOTS_QC_ENABLE:=1}" # 0|1
+: "${MOTION_GRAYPLOTS_QC_STRICT:=0}" # 0|1
+: "${MOTION_GRAYPLOTS_QC_FD_THRESHOLD:=0.3}"
 : "${PROCESSING_MODE:=auto}" # auto|multi_echo|single_echo
 : "${MULTI_ECHO_DENOISE_METHOD:=meica}" # meica|aroma|acompcor
 : "${SINGLE_ECHO_DENOISE_METHOD:=acompcor}" # aroma|acompcor
 : "${SINGLE_ECHO_ECHO_INDEX:=1}"
+: "${AROMA_NSI_RECLASSIFY_ENABLE:=0}" # 0|1; future experimental path, classic AROMA by default
 : "${AROMA_NSI_THRESHOLD:=0.05}"
 
 case "$DISTORTION_CORRECTION_MODE" in
@@ -107,8 +121,8 @@ case "$DISTORTION_CORRECTION_MODE" in
     FUNC_NOFIELDMAP_MODE=1
     ;;
   medic)
-    # MEDIC provides its own coreg/headmotion modules after displacement-map
-    # generation. Keep the mode explicit so it cannot silently fall back to TOPUP.
+    # MEDIC requires per-echo phase companions and provides its own
+    # coreg/headmotion modules after displacement-map generation.
     ;;
   *)
     echo "ERROR: DISTORTION_CORRECTION_MODE must be topup, direct_b0, medic, or none (got '$DISTORTION_CORRECTION_MODE')" >&2
@@ -124,6 +138,151 @@ esac
 if [[ -z "${FUNC_XFMS_DIRNAME:-}" ]]; then
   FUNC_XFMS_DIRNAME="$FUNC_DIRNAME"
 fi
+
+has_topup_fieldmaps() {
+  local fm_rel="${FM_RAW_DIR_REL:-func/unprocessed/${FUNC_DIRNAME}/field_maps}"
+  local fm_dir="$SubjectDir/$fm_rel"
+  compgen -G "$fm_dir/AP_S*_R*.nii.gz" >/dev/null || return 1
+  compgen -G "$fm_dir/PA_S*_R*.nii.gz" >/dev/null || return 1
+}
+
+medic_phase_inputs_complete() {
+  local root="$SubjectDir/func/unprocessed/$FUNC_DIRNAME"
+  local session_dir run_dir s r mag phase
+  local -a mags=()
+  local found_run=0
+  [[ -d "$root" ]] || return 1
+
+  while IFS= read -r session_dir; do
+    s="${session_dir##*/session_}"
+    [[ "$s" =~ ^[0-9]+$ ]] || continue
+    (( s >= START_SESSION )) || continue
+    while IFS= read -r run_dir; do
+      r="${run_dir##*/run_}"
+      [[ "$r" =~ ^[0-9]+$ ]] || continue
+      mapfile -t mags < <(find -L "$run_dir" -maxdepth 1 -type f -name "${FUNC_FILE_PREFIX}_S${s}_R${r}_E*.nii.gz" ! -name '*_phase.nii.gz' | sort -V)
+      [[ "${#mags[@]}" -ge 2 ]] || return 1
+      for mag in "${mags[@]}"; do
+        phase="${mag%.nii.gz}_phase.nii.gz"
+        [[ -f "$phase" ]] || return 1
+      done
+      found_run=1
+    done < <(find -L "$session_dir" -mindepth 1 -maxdepth 1 -type d -name 'run_*' | sort -V)
+  done < <(find -L "$root" -mindepth 1 -maxdepth 1 -type d -name 'session_*' | sort -V)
+
+  [[ "$found_run" == "1" ]]
+}
+
+has_reusable_topup_outputs() {
+  local fm_rel="${FM_OUT_DIR_REL:-func/${FUNC_DIRNAME}/field_maps}"
+  local fm_dir="$SubjectDir/$fm_rel"
+  local output mode
+  [[ -r "$fm_dir/FIELDMAP_MODE.txt" ]] || return 1
+  mode="$(cat "$fm_dir/FIELDMAP_MODE.txt")"
+  # The fieldmaps module records TOPUP as "measured", direct B0 as
+  # "direct_b0", and no-fieldmap placeholders as "none".
+  [[ "$mode" == "measured" || "$mode" == "topup" ]] || return 1
+  for output in Avg_FM_rads_acpc.nii.gz Avg_FM_mag_acpc.nii.gz \
+                Avg_FM_mag_acpc_brain.nii.gz acqparams.txt; do
+    [[ -s "$fm_dir/$output" ]] || return 1
+  done
+}
+
+resolve_medic_resume_mode() {
+  local root="$SubjectDir/func/$FUNC_DIRNAME"
+  local session_dir run_dir s r dmap first_missing=""
+  local total=0 present=0 complete=0
+  # Match the input run inventory of the stage being resumed. Coreg can
+  # recreate processed run directories; headmotion consumes those directories.
+  if [[ "$START_FROM_MODULE" == "coreg" && -d "$SubjectDir/func/unprocessed/$FUNC_DIRNAME" ]]; then
+    root="$SubjectDir/func/unprocessed/$FUNC_DIRNAME"
+  fi
+  if [[ -d "$root" ]]; then
+    while IFS= read -r session_dir; do
+      s="${session_dir##*/session_}"
+      [[ "$s" =~ ^[0-9]+$ ]] || continue
+      (( s >= START_SESSION )) || continue
+      while IFS= read -r run_dir; do
+        r="${run_dir##*/run_}"
+        [[ "$r" =~ ^[0-9]+$ ]] || continue
+        total=$((total + 1))
+        dmap="$SubjectDir/func/$FUNC_DIRNAME/session_${s}/run_${r}/MEDIC/${FUNC_FILE_PREFIX}_S${s}_R${r}_displacementmaps.nii"
+        if [[ -e "$dmap" || -L "$dmap" || -e "${dmap}.gz" || -L "${dmap}.gz" ]]; then
+          present=$((present + 1))
+        fi
+        if [[ -s "$dmap" ]]; then
+          complete=$((complete + 1))
+        elif [[ -z "$first_missing" ]]; then
+          first_missing="$dmap"
+        fi
+      done < <(find -L "$session_dir" -mindepth 1 -maxdepth 1 -type d -name 'run_*' | sort -V)
+    done < <(find -L "$root" -mindepth 1 -maxdepth 1 -type d -name 'session_*' | sort -V)
+  fi
+
+  if (( total > 0 && complete == total )); then
+    echo "Resuming with existing MEDIC displacement maps for all ${total} selected runs; raw phase preflight is not required."
+  elif (( present > 0 )); then
+    echo "ERROR: Incomplete MEDIC resume outputs (${complete}/${total} selected runs have nonempty displacement maps)." >&2
+    echo "ERROR: Missing or empty expected map: $first_missing" >&2
+    echo "ERROR: Refusing to switch partially processed MEDIC runs to TOPUP. Restart with START_FROM_MODULE=fieldmaps to complete or explicitly change distortion correction." >&2
+    exit 2
+  elif (( total > 0 )) && has_reusable_topup_outputs; then
+    echo "Resuming with existing TOPUP fieldmaps (DISTORTION_CORRECTION_MODE=topup); no MEDIC displacement maps exist for the ${total} selected runs."
+    DISTORTION_CORRECTION_MODE="topup"
+    FUNC_NOFIELDMAP_MODE=0
+  else
+    echo "ERROR: Cannot resume ${START_FROM_MODULE}: no complete MEDIC displacement maps or reusable TOPUP outputs were found for ${total} selected runs." >&2
+    echo "ERROR: Restore the required outputs or restart with START_FROM_MODULE=fieldmaps. Direct-B0 and no-fieldmap outputs require their explicit configuration modes." >&2
+    exit 2
+  fi
+}
+
+resolve_distortion_correction_mode() {
+  local check_distortion_inputs=0
+  local fieldmaps_idx stop_idx
+  if should_run_stage "fieldmaps"; then
+    check_distortion_inputs=1
+    if [[ -n "${STOP_AFTER_MODULE:-}" ]]; then
+      fieldmaps_idx="$(stage_index "fieldmaps")" || return 1
+      stop_idx="$(stage_index "$STOP_AFTER_MODULE")" || return 1
+      if (( stop_idx < fieldmaps_idx )); then
+        check_distortion_inputs=0
+      fi
+    fi
+  fi
+
+  case "$DISTORTION_CORRECTION_MODE" in
+    medic)
+      if (( ! check_distortion_inputs )); then
+        case "$START_FROM_MODULE" in
+          coreg|headmotion) resolve_medic_resume_mode ;;
+          *) echo "Skipping MEDIC raw-input preflight (START_FROM_MODULE=${START_FROM_MODULE})" ;;
+        esac
+      elif medic_phase_inputs_complete; then
+        echo "MEDIC phase companions detected; using DISTORTION_CORRECTION_MODE=medic"
+      elif has_topup_fieldmaps; then
+        echo "WARNING: DISTORTION_CORRECTION_MODE=medic requires per-echo phase images, but complete phase companions were not found." >&2
+        echo "WARNING: Falling back to DISTORTION_CORRECTION_MODE=topup because AP/PA fieldmaps are available." >&2
+        DISTORTION_CORRECTION_MODE="topup"
+      else
+        echo "ERROR: DISTORTION_CORRECTION_MODE=medic requires per-echo phase images, and TOPUP fallback fieldmaps were not found." >&2
+        echo "ERROR: Provide MEDIC phase companions or AP/PA fieldmaps. To run without distortion correction, set DISTORTION_CORRECTION_MODE=none; this can proceed but may produce suboptimal registration to anatomy." >&2
+        exit 2
+      fi
+      ;;
+    topup)
+      if (( check_distortion_inputs )) && ! has_topup_fieldmaps; then
+        echo "ERROR: DISTORTION_CORRECTION_MODE=topup requires AP/PA fieldmaps, but they were not found under func/unprocessed/${FUNC_DIRNAME}/field_maps." >&2
+        echo "ERROR: Provide AP/PA fieldmaps, choose DISTORTION_CORRECTION_MODE=medic with phase companions, or explicitly set DISTORTION_CORRECTION_MODE=none. The none mode can proceed but may yield suboptimal registration to anatomy." >&2
+        exit 2
+      fi
+      ;;
+    none)
+      FUNC_NOFIELDMAP_MODE=1
+      echo "WARNING: DISTORTION_CORRECTION_MODE=none; no susceptibility distortion correction will be applied, which can degrade registration to anatomy." >&2
+      ;;
+  esac
+}
 : "${MGTR_INPUT_TAG:=}"
 : "${MGTR_OUTPUT_TAG:=}"
 : "${MGTR_ENABLE:=auto}" # auto|0|1; auto skips MGTR after aCompCor
@@ -154,6 +313,7 @@ stage_index() {
     nsi) echo 100 ;;
     pfm) echo 110 ;;
     pfm_update|infomap_update) echo 115 ;;
+    tans) echo 120 ;;
     *)
       echo "ERROR: invalid module tag: $1" >&2
       return 1
@@ -300,6 +460,20 @@ if [[ "${STOP_AFTER_MODULE:-}" == "meica" ]]; then
   STOP_AFTER_MODULE="denoise"
 fi
 
+case "${TANS_ENABLE}" in
+  0|1) ;;
+  *) echo "ERROR: TANS_ENABLE must be 0 or 1" >&2; exit 2 ;;
+esac
+if [[ "${TANS_ENABLE}" != "1" ]] && \
+   [[ "$START_FROM_MODULE" == "tans" || "$STOP_AFTER_MODULE" == "tans" ]]; then
+  echo "ERROR: selecting the tans stage requires TANS_ENABLE=1" >&2
+  exit 2
+fi
+
+PIPELINE_REQUESTED_DISTORTION_CORRECTION_MODE="$DISTORTION_CORRECTION_MODE"
+resolve_distortion_correction_mode
+export DISTORTION_CORRECTION_MODE FUNC_NOFIELDMAP_MODE AROMA_NSI_RECLASSIFY_ENABLE
+
 if [ ! -f "$EnvironmentScript" ]; then
   echo "ERROR: missing environment setup script: $EnvironmentScript"
   exit 2
@@ -370,6 +544,51 @@ case "${PIPELINE_QUIET_MODULE_OUTPUT}" in
     exit 2
     ;;
 esac
+
+case "${COREG_SDC_QC_ENABLE}" in
+  0|1) ;;
+  *)
+    echo "ERROR: invalid COREG_SDC_QC_ENABLE='${COREG_SDC_QC_ENABLE}' (expected 0 or 1)"
+    exit 2
+    ;;
+esac
+
+case "${QC_VALIDATION_ENABLE}" in
+  0|1) ;;
+  *)
+    echo "ERROR: invalid QC_VALIDATION_ENABLE='${QC_VALIDATION_ENABLE}' (expected 0 or 1)"
+    exit 2
+    ;;
+esac
+
+case "${COREG_SDC_QC_STRICT}" in
+  0|1) ;;
+  *)
+    echo "ERROR: invalid COREG_SDC_QC_STRICT='${COREG_SDC_QC_STRICT}' (expected 0 or 1)"
+    exit 2
+    ;;
+esac
+
+case "${MOTION_GRAYPLOTS_QC_ENABLE}" in
+  0|1) ;;
+  *)
+    echo "ERROR: invalid MOTION_GRAYPLOTS_QC_ENABLE='${MOTION_GRAYPLOTS_QC_ENABLE}' (expected 0 or 1)"
+    exit 2
+    ;;
+esac
+
+case "${MOTION_GRAYPLOTS_QC_STRICT}" in
+  0|1) ;;
+  *)
+    echo "ERROR: invalid MOTION_GRAYPLOTS_QC_STRICT='${MOTION_GRAYPLOTS_QC_STRICT}' (expected 0 or 1)"
+    exit 2
+    ;;
+esac
+
+if ! [[ "${MOTION_GRAYPLOTS_QC_FD_THRESHOLD}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "ERROR: invalid MOTION_GRAYPLOTS_QC_FD_THRESHOLD='${MOTION_GRAYPLOTS_QC_FD_THRESHOLD}' (expected non-negative numeric mm threshold)"
+  exit 2
+fi
 
 case "${PROCESSING_MODE}" in
   auto|multi_echo|single_echo) ;;
@@ -568,8 +787,9 @@ echo "Masking defaults: CHARM_BRAIN_MASK_MODE=${CHARM_BRAIN_MASK_MODE:-unset}, V
 echo "Reclass defaults: mode=${MEICA_CLASSIFIER_MODE:-unset}, nsi_kill=${MEICA_NSI_KILL_MODE:-unset}, reports_disabled=${MEICA_RECLASS_NO_REPORTS:-unset}"
 echo "Module output mode: quiet=${PIPELINE_QUIET_MODULE_OUTPUT}"
 
-FUNC_QA_DIR="$SubjectDir/func/$FUNC_DIRNAME/qa"
-MODULE_LOG_DIR="$FUNC_QA_DIR/ModuleLogs"
+FUNC_QC_DIR="$SubjectDir/func/$FUNC_DIRNAME/$QC_OUTPUT_DIRNAME"
+FUNC_QA_DIR="$FUNC_QC_DIR"
+MODULE_LOG_DIR="$FUNC_QC_DIR/ModuleLogs"
 mkdir -p "$MODULE_LOG_DIR"
 
 run_module() {
@@ -604,6 +824,8 @@ run_module() {
       }
       if ($0 ~ /^\[coreg\]/ || $0 ~ /^\[headmotion\]/ || $0 ~ /^\[medic\]/ || $0 ~ /^\[concat\]/ || $0 ~ /^\[nsi\]/ || $0 ~ /^\[pfm\]/ ||
           $0 ~ /^\[crawling_seed_fc\]/ ||
+          $0 ~ /^\[qc-coreg-sdc\]/ ||
+          $0 ~ /^\[qc-motion-grayplots\]/ ||
           $0 ~ /^\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\] MEICA: start subject=/ ||
           $0 ~ /^\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\] MEICA: start session_/ ||
           $0 ~ /^\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\] MEICA: done session_/ ||
@@ -642,8 +864,17 @@ print_section() {
   echo "$title"
 }
 
+run_motion_grayplots_qc() {
+  if [[ "${MOTION_GRAYPLOTS_QC_ENABLE}" != "1" ]]; then
+    echo "Skipping Motion & GrayPlots QC (MOTION_GRAYPLOTS_QC_ENABLE=${MOTION_GRAYPLOTS_QC_ENABLE})"
+    return 0
+  fi
+  [ -f "$FUNC_QC_MOTION_GRAYPLOTS_MODULE" ] || { echo "ERROR: missing module: $FUNC_QC_MOTION_GRAYPLOTS_MODULE"; exit 2; }
+  run_module "qc_motion_grayplots" bash "$FUNC_QC_MOTION_GRAYPLOTS_MODULE" "$MEDIR" "$Subject" "$StudyFolder" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+}
+
 if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
-  RUN_META_DIR="$FUNC_QA_DIR/RunMetadata"
+  RUN_META_DIR="$FUNC_QC_DIR/RunMetadata"
   mkdir -p "$RUN_META_DIR"
   RUN_META_FILE="$RUN_META_DIR/pipeline_run_$(date +%Y%m%d_%H%M%S).txt"
   {
@@ -657,7 +888,15 @@ if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
     echo "func_dirname=$FUNC_DIRNAME"
     echo "func_file_prefix=$FUNC_FILE_PREFIX"
     echo "func_xfms_dirname=$FUNC_XFMS_DIRNAME"
+    echo "distortion_correction_mode_requested=$PIPELINE_REQUESTED_DISTORTION_CORRECTION_MODE"
     echo "distortion_correction_mode=$DISTORTION_CORRECTION_MODE"
+    echo "qc_output_dirname=$QC_OUTPUT_DIRNAME"
+    echo "qc_validation_enable=$QC_VALIDATION_ENABLE"
+    echo "coreg_sdc_qc_enable=$COREG_SDC_QC_ENABLE"
+    echo "coreg_sdc_qc_strict=$COREG_SDC_QC_STRICT"
+    echo "motion_grayplots_qc_enable=$MOTION_GRAYPLOTS_QC_ENABLE"
+    echo "motion_grayplots_qc_strict=$MOTION_GRAYPLOTS_QC_STRICT"
+    echo "motion_grayplots_qc_fd_threshold=$MOTION_GRAYPLOTS_QC_FD_THRESHOLD"
     echo "sbref_echo_combination=${SBREF_ECHO_COMBINATION:-}"
     echo "sbref_max_te_ms=${SBREF_MAX_TE_MS:-}"
     echo "sbref_t2smap_mask_thr=${SBREF_T2SMAP_MASK_THR:-}"
@@ -670,6 +909,7 @@ if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
     echo "single_echo_method=${SINGLE_ECHO_DENOISE_METHOD}"
     echo "multi_echo_method=${MULTI_ECHO_DENOISE_METHOD}"
     echo "single_echo_echo_index=${SINGLE_ECHO_ECHO_INDEX}"
+    echo "aroma_nsi_reclassify_enable=${AROMA_NSI_RECLASSIFY_ENABLE}"
     echo "aroma_nsi_threshold=${AROMA_NSI_THRESHOLD}"
     echo "pipeline_source_func_tag=${PIPELINE_SOURCE_FUNC_TAG}"
     echo "pipeline_denoise_output_tag=${PIPELINE_DENOISE_OUTPUT_TAG}"
@@ -801,6 +1041,12 @@ fi
 [ -f "$CoregModule" ] || { echo "ERROR: missing module: $CoregModule"; exit 2; }
 if should_run_stage "coreg"; then
   run_module "$CoregTag" bash "$CoregModule" "$MEDIR" "$Subject" "$StudyFolder" "$AtlasTemplate" "$DOF" "$THREADS_COREG" "$START_SESSION" "$AtlasSpace" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+  if [[ "${COREG_SDC_QC_ENABLE}" == "1" ]]; then
+    [ -f "$FUNC_QC_COREG_SDC_MODULE" ] || { echo "ERROR: missing module: $FUNC_QC_COREG_SDC_MODULE"; exit 2; }
+    run_module "qc_coreg_sdc" bash "$FUNC_QC_COREG_SDC_MODULE" "$MEDIR" "$Subject" "$StudyFolder" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX" "$FUNC_XFMS_DIRNAME" "$DISTORTION_CORRECTION_MODE"
+  else
+    echo "Skipping coreg/SDC QC report (COREG_SDC_QC_ENABLE=${COREG_SDC_QC_ENABLE})"
+  fi
   if [[ "$STOP_AFTER_MODULE" == "coreg" ]]; then
     echo "Stopping after coreg (STOP_AFTER_MODULE=coreg)"
     exit 0
@@ -857,6 +1103,7 @@ if should_run_stage "denoise"; then
     fi
   fi
   if [[ "$STOP_AFTER_MODULE" == "denoise" ]]; then
+    echo "Skipping Motion & GrayPlots QC (requires vol2surf dtseries outputs; run through vol2surf or later)."
     echo "Stopping after denoise (STOP_AFTER_MODULE=denoise)"
     exit 0
   fi
@@ -870,12 +1117,13 @@ if [[ "${PIPELINE_EFFECTIVE_MGTR_ENABLE}" != "1" ]]; then
   echo "Skipping mgtr (MGTR_ENABLE=${MGTR_ENABLE}, effective denoise method=${PIPELINE_EFFECTIVE_DENOISE_METHOD})"
 elif should_run_stage "mgtr"; then
   run_module "mgtr" bash "$FUNC_MGTR_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION"
-  if [[ "$STOP_AFTER_MODULE" == "mgtr" ]]; then
-    echo "Stopping after mgtr (STOP_AFTER_MODULE=mgtr)"
-    exit 0
-  fi
 else
   echo "Skipping mgtr (START_FROM_MODULE=${START_FROM_MODULE})"
+fi
+if [[ "$STOP_AFTER_MODULE" == "mgtr" ]]; then
+  echo "Skipping Motion & GrayPlots QC (requires vol2surf dtseries outputs; run through vol2surf or later)."
+  echo "Stopping after mgtr (STOP_AFTER_MODULE=mgtr)"
+  exit 0
 fi
 
 print_section "Mapping denoised data to surface"
@@ -887,12 +1135,19 @@ fi
 Vol2SurfSpec="$VOL2SURF_INPUTS"
 if should_run_stage "vol2surf"; then
   run_module "vol2surf" bash "$FUNC_VOL2SURF_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$Vol2SurfSpec" "$START_SESSION" "$AtlasSpace" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+else
+  echo "Skipping vol2surf (START_FROM_MODULE=${START_FROM_MODULE})"
+fi
+
+print_section "Generating Motion & GrayPlots QC"
+if should_run_stage "vol2surf"; then
+  run_motion_grayplots_qc
   if [[ "$STOP_AFTER_MODULE" == "vol2surf" ]]; then
     echo "Stopping after vol2surf (STOP_AFTER_MODULE=vol2surf)"
     exit 0
   fi
 else
-  echo "Skipping vol2surf (START_FROM_MODULE=${START_FROM_MODULE})"
+  echo "Skipping Motion & GrayPlots QC (START_FROM_MODULE=${START_FROM_MODULE})"
 fi
 
 if [[ "${CONCAT_ENABLE}" == "1" ]]; then
@@ -956,5 +1211,19 @@ if [[ "${PFM_INFOMAP_UPDATE_ENABLE}" == "1" ]]; then
     fi
   else
     echo "Skipping Infomap manual update (START_FROM_MODULE=${START_FROM_MODULE})"
+  fi
+fi
+
+if [[ "${TANS_ENABLE}" == "1" ]]; then
+  if should_run_stage "tans"; then
+    print_section "Running TANS module"
+    [ -f "$FUNC_TANS_MODULE" ] || { echo "ERROR: missing module: $FUNC_TANS_MODULE"; exit 2; }
+    run_module "tans" bash "$FUNC_TANS_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+    if [[ "$STOP_AFTER_MODULE" == "tans" ]]; then
+      echo "Stopping after tans (STOP_AFTER_MODULE=tans)"
+      exit 0
+    fi
+  else
+    echo "Skipping TANS (START_FROM_MODULE=${START_FROM_MODULE})"
   fi
 fi

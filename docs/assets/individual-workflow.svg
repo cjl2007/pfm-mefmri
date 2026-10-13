@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="450" viewBox="0 0 1440 450" role="img" aria-labelledby="title desc">
+  <title id="title">An individual brain</title>
+  <desc id="desc">Multi-echo tools and processing frameworks, with single-echo support and repeat sampling, feed individual-level quality control using NSI and crawling-seed functional connectivity. Optional PFM and TANS modules extend the workflow to network mapping and individualized neuromodulation.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#74838f"/></marker></defs>
+  <rect width="1440" height="450" rx="18" fill="#f2f7f8"/>
+  <g font-family="Arial, sans-serif">
+    <text x="32" y="58" font-size="38" font-weight="700" fill="#163842">An individual brain</text>
+    <text x="32" y="93" font-size="20" fill="#52636b">One participant · single or repeated sampling</text>
+    <g fill="white" stroke="#c8dadd">
+      <rect x="28" y="127" width="421" height="265" rx="12"/>
+      <rect x="506" y="127" width="421" height="265" rx="12"/>
+      <rect x="984" y="127" width="428" height="265" rx="12"/>
+    </g>
+    <g fill="#11666c" font-size="16" font-weight="700">
+      <text x="50" y="161">PROCESSING</text><text x="528" y="161">INDIVIDUAL-LEVEL QC</text><text x="1006" y="161">OPTIONAL MODULES</text>
+    </g>
+    <g fill="#163842" font-size="26" font-weight="700">
+      <text x="50" y="204">Multi-echo integration</text><text x="528" y="204">Network structure</text>
+      <text x="1006" y="204">PFM</text><text x="1006" y="305">TANS</text>
+    </g>
+    <g fill="#52636b" font-size="21">
+      <text x="50" y="244">Tools &amp; processing frameworks</text>
+      <text x="50" y="280">Single-echo support</text>
+      <text x="50" y="316">Sessions and runs preserved</text>
+      <text x="528" y="244">NSI · crawling-seed FC</text>
+      <text x="528" y="280">Assess network signal</text>
+      <text x="528" y="316">and suitability for modeling</text>
+      <text x="1006" y="241">Map individual networks</text>
+      <text x="1006" y="342">Individualized neuromodulation</text>
+    </g>
+    <path d="M1006 268H1387" stroke="#dce6e8"/>
+    <g stroke="#74838f" stroke-width="2" marker-end="url(#arrow)"><path d="M459 256H495"/><path d="M937 256H973"/></g>
+    <text x="720" y="427" text-anchor="middle" font-size="18" fill="#385863">Review the individual’s data before mapping networks or planning stimulation</text>
+  </g>
+</svg>

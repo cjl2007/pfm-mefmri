@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PFM preparation module: concatenate run CIFTIs and apply FD censoring.
 
-This mirrors the front end of ExamplePFMCall.m while deferring RidgeFusion/NSI
+This mirrors the front end of ExamplePFMCall.m while deferring RidgePFM/NSI
 porting to later stages.
 """
 from __future__ import annotations
@@ -15,6 +15,8 @@ import numpy as np
 import nibabel as nib
 from nibabel.cifti2.cifti2_axes import SeriesAxis
 
+from mefmri_motion import FD_METHOD, compute_fd_from_motion, fd_settings, filtered_motion_for_fd
+
 
 def compute_fd_from_mcfpar(mcf_par: Path, tr: float) -> np.ndarray:
     rp = np.loadtxt(mcf_par, dtype=np.float64)
@@ -23,19 +25,11 @@ def compute_fd_from_mcfpar(mcf_par: Path, tr: float) -> np.ndarray:
     if rp.shape[1] != 6:
         raise ValueError(f"Expected 6-column motion file: {mcf_par}, got {rp.shape}")
 
-    # Match legacy MATLAB behavior: backward difference over ~2.5 s.
-    n_trs = int(round(2.5 / tr))
-    n_trs = max(1, min(n_trs, rp.shape[0]))
-
-    fd = np.zeros_like(rp)
-    for col in range(6):
-        for i in range(n_trs, rp.shape[0]):
-            fd[i, col] = abs(rp[i, col] - rp[i - n_trs, col])
-
-    fd_ang = fd[:, :3] / (2.0 * np.pi)
-    fd_ang = fd_ang * 100.0 * np.pi
-    fd_lin = fd[:, 3:]
-    return np.sum(np.hstack([fd_lin, fd_ang]), axis=1)
+    try:
+        filtered, _ = filtered_motion_for_fd(rp, tr)
+        return compute_fd_from_motion(filtered, tr)
+    except ValueError as exc:
+        raise ValueError(f"Cannot calculate historical FD for {mcf_par}: {exc}") from exc
 
 
 def _parse_trailing_int(path_name: str, prefix: str) -> Optional[int]:
@@ -135,9 +129,9 @@ def main() -> int:
     ap.add_argument("--nsi-compute-morans", type=int, default=0)
     ap.add_argument("--nsi-compute-slope", type=int, default=0)
     ap.add_argument("--rf-enable", type=int, default=0)
-    ap.add_argument("--rf-outfile", default="RidgeFusion_VTX")
+    ap.add_argument("--rf-outfile", default="RidgePFM_VTX")
     ap.add_argument("--rf-fc-weight", type=float, default=1.0)
-    ap.add_argument("--rf-spatial-weight", type=float, default=0.1)
+    ap.add_argument("--rf-spatial-weight", type=float, default=0.05)
     ap.add_argument("--ap-enable", type=int, default=0)
     ap.add_argument("--ap-method", default="kmeans")
     ap.add_argument("--ap-kmax-cap", type=int, default=8)
@@ -204,7 +198,9 @@ def main() -> int:
             raise ValueError(f"Grayordinate mismatch in {in_dt}")
 
         concat_blocks.append(data)
-        fd_all.append(fd.astype(np.float32, copy=False))
+        # Keep full precision so values near the threshold retain the same mask
+        # in memory and when downstream tools reload FD.txt.
+        fd_all.append(fd)
         scan_idx.append(np.full(fd.shape[0], scan_id, dtype=np.int32))
         run_meta.append(
             {
@@ -214,6 +210,7 @@ def main() -> int:
                 "run_dir": str(run_dir),
                 "input_dtseries": str(in_dt),
                 "n_timepoints": int(fd.shape[0]),
+                "fd": fd_settings(tr),
             }
         )
 
@@ -249,7 +246,7 @@ def main() -> int:
     save_dtseries(cens, ref_img, out_cens)
 
     if int(args.save_fd_txt) == 1:
-        np.savetxt(outdir / "FD.txt", fd_vec, fmt="%.6f")
+        np.savetxt(outdir / "FD.txt", fd_vec, fmt="%.17g")
     if int(args.save_scanidx_txt) == 1:
         np.savetxt(outdir / "ScanIdx.txt", scan_vec, fmt="%d")
     (outdir / "ScanInfo.json").write_text(json.dumps(run_meta, indent=2))
@@ -261,6 +258,8 @@ def main() -> int:
         "func_file_prefix": args.func_file_prefix,
         "input_tag": args.input_tag,
         "fd_threshold": args.fd_threshold,
+        "fd_method": FD_METHOD,
+        "fd_keep_comparison": "<",
         "n_runs_used": int(len(concat_blocks)),
         "n_scans": int(len(run_meta)),
         "n_runs_missing_input": int(len(missing_runs)),

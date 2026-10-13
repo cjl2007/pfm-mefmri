@@ -36,7 +36,8 @@ COREG_PYTHON="${COREG_PYTHON:-${PIPELINE_PYTHON:-python3}}"
 FUNC_NOFIELDMAP_MODE="${FUNC_NOFIELDMAP_MODE:-0}"
 FM_OUT_DIR_REL="${FM_OUT_DIR_REL:-func/${FuncDirName}/field_maps}"
 FM_DIR="$Subdir/$FM_OUT_DIR_REL"
-COREG_QA_DIR="${COREG_QA_DIR:-$Subdir/func/${FuncDirName}/qa/Coreg}"
+QC_OUTPUT_DIRNAME="${QC_OUTPUT_DIRNAME:-QC}"
+COREG_QA_DIR="${COREG_QA_DIR:-$Subdir/func/${FuncDirName}/${QC_OUTPUT_DIRNAME}/Coreg}"
 
 case "${AtlasSpace}" in
 	T1w|MNINonlinear) ;;
@@ -77,11 +78,19 @@ ensure_white_wmseg() {
 # Read the JSON sidecars for each scan and write the text files used later in preprocessing.
 
 "$COREG_PYTHON" "$MEDIR"/lib/find_epi_params.py \
---subdir "$Subdir" --func-name "$FuncDirName" --func-prefix "$FuncFilePrefix" --start-session "$StartSession" \
+--subdir "$Subdir" --func-name "$FuncDirName" --func-prefix "$FuncFilePrefix" --start-session "$StartSession" --qc-dirname "$QC_OUTPUT_DIRNAME" \
 $( [[ "$FUNC_NOFIELDMAP_MODE" == "1" ]] && printf '%s' "--no-fieldmap-mode" )
 WMSEG_NII="$(ensure_white_wmseg)"
 SBREF_FALLBACK_SKIP_TRS="${SBREF_FALLBACK_SKIP_TRS:-10}"
 SBREF_REORIENT_TO_STD="${SBREF_REORIENT_TO_STD:-1}"
+SBREF_ECHO_COMBINATION="${SBREF_ECHO_COMBINATION:-${MEDIC_SBREF_COMBINATION:-mean}}"
+SBREF_MAX_TE_MS="${SBREF_MAX_TE_MS:-${MEDIC_SBREF_MAX_TE_MS:-60}}"
+SBREF_T2SMAP_MASK_THR="${SBREF_T2SMAP_MASK_THR:-${MEDIC_SBREF_T2SMAP_MASK_THR:-1}}"
+SBREF_T2SMAP_THREADS="${SBREF_T2SMAP_THREADS:-${MEDIC_SBREF_T2SMAP_THREADS:-1}}"
+SBREF_KEEP_INTERMEDIATES="${SBREF_KEEP_INTERMEDIATES:-${MEDIC_SBREF_KEEP_INTERMEDIATES:-0}}"
+TEDANA_ENV="${TEDANA_ENV:-mefmri_env}"
+TEDANA_ACTIVATE_MODE="${TEDANA_ACTIVATE_MODE:-conda_activate}"
+T2SMAP_BIN="${T2SMAP_BIN:-t2smap}"
 
 reorient_to_std_inplace() {
 	local img="$1"
@@ -90,6 +99,173 @@ reorient_to_std_inplace() {
 	[[ -f "$img" ]] || return 1
 	fslreorient2std "$img" "$tmp"
 	mv -f "$tmp" "$img"
+}
+
+float_lt() {
+	python3 - "$1" "$2" <<'PY'
+import sys
+print("1" if float(sys.argv[1]) < float(sys.argv[2]) else "0")
+PY
+}
+
+ms_to_s() {
+	python3 - "$1" <<'PY'
+import sys
+print(f"{float(sys.argv[1]) / 1000.0:.8g}")
+PY
+}
+
+resolve_tedana_bin() {
+	local exe="$1"
+	if [[ "$exe" == */* ]]; then
+		[[ -x "$exe" ]] || {
+			echo "ERROR: configured tedana executable is not executable: $exe" >&2
+			exit 2
+		}
+		echo "$exe"
+		return 0
+	fi
+	case "$TEDANA_ACTIVATE_MODE" in
+		direct)
+			command -v "$exe" || {
+				echo "ERROR: could not find $exe on PATH with TEDANA_ACTIVATE_MODE=direct" >&2
+				exit 2
+			}
+			;;
+		conda_activate|conda_run)
+			command -v conda >/dev/null 2>&1 || {
+				echo "ERROR: conda is required for TEDANA_ACTIVATE_MODE=$TEDANA_ACTIVATE_MODE" >&2
+				exit 2
+			}
+			local base candidate
+			base="$(conda info --base 2>/dev/null || true)"
+			[[ -n "$base" ]] || {
+				echo "ERROR: could not resolve conda base path" >&2
+				exit 2
+			}
+			candidate="$base/envs/$TEDANA_ENV/bin/$exe"
+			[[ -x "$candidate" ]] || {
+				echo "ERROR: missing $exe in conda env '$TEDANA_ENV': $candidate" >&2
+				exit 2
+			}
+			echo "$candidate"
+			;;
+		*)
+			echo "ERROR: invalid TEDANA_ACTIVATE_MODE=$TEDANA_ACTIVATE_MODE" >&2
+			exit 2
+			;;
+	esac
+}
+
+make_4d_copy() {
+	local py_bin="$1"
+	local input="$2"
+	local output="$3"
+	"$py_bin" - "$input" "$output" <<'PY'
+import sys
+import nibabel as nb
+
+img = nb.load(sys.argv[1])
+data = img.get_fdata(dtype="float32")
+if data.ndim == 3:
+    data = data[..., None]
+nb.save(nb.Nifti1Image(data, img.affine, img.header), sys.argv[2])
+PY
+}
+
+combine_sbref_t2smap() {
+	local combmode="$1"
+	local out="$2"
+	local tmp_dir="$3"
+	shift 3
+	local refs=("$@")
+
+	[[ "${#COMBINE_TES_SECONDS[@]}" -eq "${#refs[@]}" ]] || {
+		echo "ERROR: t2smap TE/reference count mismatch" >&2
+		exit 2
+	}
+	[[ "${#refs[@]}" -ge 2 ]] || {
+		echo "ERROR: t2smap SBRef combination requires at least two echoes" >&2
+		exit 2
+	}
+
+	local t2smap_bin py_bin t2s_dir inputs=()
+	t2smap_bin="$(resolve_tedana_bin "$T2SMAP_BIN")"
+	py_bin="$(resolve_tedana_bin python)"
+	t2s_dir="$tmp_dir/t2smap"
+	mkdir -p "$t2s_dir" "$tmp_dir/mplconfig"
+
+	fslmaths "${refs[0]}" -thr "$SBREF_T2SMAP_MASK_THR" -bin "$tmp_dir/t2smap_mask.nii.gz"
+
+	local idx ref4
+	for ((idx = 0; idx < ${#refs[@]}; idx++)); do
+		ref4="$tmp_dir/t2smap_echo_$((idx + 1))_4d.nii.gz"
+		make_4d_copy "$py_bin" "${refs[$idx]}" "$ref4"
+		inputs+=("$ref4")
+	done
+
+	MPLCONFIGDIR="$tmp_dir/mplconfig" "$t2smap_bin" \
+		-d "${inputs[@]}" \
+		-e "${COMBINE_TES_SECONDS[@]}" \
+		--out-dir "$t2s_dir" \
+		--prefix sbref_ \
+		--convention bids \
+		--mask "$tmp_dir/t2smap_mask.nii.gz" \
+		--masktype none \
+		--combmode "$combmode" \
+		--n-threads "$SBREF_T2SMAP_THREADS" \
+		--overwrite
+
+	[[ -f "$t2s_dir/sbref_desc-optcom_bold.nii.gz" ]] || {
+		echo "ERROR: t2smap did not create sbref_desc-optcom_bold.nii.gz" >&2
+		exit 2
+	}
+	fslroi "$t2s_dir/sbref_desc-optcom_bold.nii.gz" "$out" 0 1
+}
+
+combine_sbref_echoes() {
+	local method="$1"
+	local out="$2"
+	local tmp_dir="$3"
+	shift 3
+	local refs=("$@")
+
+	[[ "${#refs[@]}" -gt 0 ]] || {
+		echo "ERROR: no SBRef echoes were selected for combination" >&2
+		exit 2
+	}
+
+	case "$method" in
+		mean)
+			fslmerge -t "$tmp_dir/all_echo_refs.nii.gz" "${refs[@]}"
+			fslmaths "$tmp_dir/all_echo_refs.nii.gz" -Tmean "$out"
+			;;
+		sos)
+			local sum="$tmp_dir/sos_sum.nii.gz"
+			local sq
+			fslmaths "${refs[0]}" -sqr "$sum"
+			local idx
+			for ((idx = 1; idx < ${#refs[@]}; idx++)); do
+				sq="$tmp_dir/sos_sq_${idx}.nii.gz"
+				fslmaths "${refs[$idx]}" -sqr "$sq"
+				fslmaths "$sum" -add "$sq" "$sum"
+			done
+			fslmaths "$sum" -sqrt "$out"
+			;;
+		t2s|paid)
+			combine_sbref_t2smap "$method" "$out" "$tmp_dir" "${refs[@]}"
+			;;
+		first)
+			cp "${refs[0]}" "$out"
+			;;
+		last)
+			cp "${refs[$((${#refs[@]} - 1))]}" "$out"
+			;;
+		*)
+			echo "ERROR: unsupported SBREF_ECHO_COMBINATION=$method (use mean|sos|t2s|paid|first|last)" >&2
+			exit 2
+			;;
+	esac
 }
 
 # Create SBrefs (average of the first few echoes) for each scan.
@@ -101,19 +277,23 @@ mkdir -p "$Subdir"/func/xfms/"$FuncXfmsDir"
 WDIR="$Subdir"/func/"$FuncDirName"/AverageSBref
 XfmsDir="$Subdir"/func/xfms/"$FuncXfmsDir"
 
-# count the number of sessions
-sessions=("$Subdir"/func/unprocessed/"$FuncDirName"/session_*)
-sessions=$(seq 1 1 "${#sessions[@]}")
+mapfile -t sessions < <(
+	find -L "$Subdir"/func/unprocessed/"$FuncDirName" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -printf '%f\n' |
+		sed 's/^session_//' |
+		sort -n
+)
 
 # Iterate through sessions.
-for s in $sessions ; do
+for s in "${sessions[@]}" ; do
 
-	# count number of runs for this session;
-	runs=("$Subdir"/func/unprocessed/"$FuncDirName"/session_"$s"/run_*)
-	runs=$(seq 1 1 "${#runs[@]}")
+	mapfile -t runs < <(
+		find -L "$Subdir"/func/unprocessed/"$FuncDirName"/session_"$s" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
+			sed 's/^run_//' |
+			sort -n
+	)
 
 	# Iterate over runs.
-	for r in $runs ; do 
+	for r in "${runs[@]}" ; do
 
 		# Read echo times.
 		[[ -f "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/TE.txt ]] || {
@@ -156,36 +336,55 @@ for s in $sessions ; do
 			flirt -in "$WDIR"/Bias_field_"$s"_"$r".nii.gz -ref "$WDIR"/TMP_1.nii.gz -applyxfm -init "$MEDIR"/res0urces/ident.mat -out "$WDIR"/Bias_field_"$s"_"$r".nii.gz -interp spline #
 		fi
 
-		# Reset the echo counter.
-		n_te=0 
+		# Combine selected echoes into the run-level SBref.
+		n_te=0
+		sbref_tmp="$WDIR"/sbref_"$s"_"$r"_tmp
+		rm -rf "$sbref_tmp"
+		mkdir -p "$sbref_tmp"
+		selected_refs=()
+		selected_tes_seconds=()
+		sources_tsv="$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref_echo_sources.tsv
+		{
+			echo -e "echo\tte_ms\tincluded\tsource_type\tsource_path\tworking_copy"
+		} > "$sources_tsv"
 
-		# Iterate over echoes.
 		for i in $te ; do
-
-			# Skip longer echo times for the SBref average.
-			if [[ $i < 60 ]] ; then 
-
-				n_te=`expr $n_te + 1`
-				sbref_echo=( "$Subdir"/func/unprocessed/"$FuncDirName"/session_"$s"/run_"$r"/SBref*_E"$n_te".nii.gz )
-				[[ "${#sbref_echo[@]}" -gt 0 ]] || {
-					echo "ERROR: missing SBref echo ${n_te} for session_${s}/run_${r}." >&2
-					exit 1
-				}
-				cp "${sbref_echo[0]}" "$WDIR"/TMP_"$n_te".nii.gz
-				if [[ "$ApplyN4Bias" -eq 1 ]]; then
-					fslmaths "$WDIR"/TMP_"$n_te".nii.gz -div "$WDIR"/Bias_field_"$s"_"$r".nii.gz "$WDIR"/TMP_"$n_te".nii.gz # apply correction;
-				fi
-
+			n_te=`expr $n_te + 1`
+			include=1
+			if [[ "$SBREF_MAX_TE_MS" != "none" ]]; then
+				include="$(float_lt "$i" "$SBREF_MAX_TE_MS")"
 			fi
 
+			if [[ "$include" != "1" ]]; then
+				echo -e "${n_te}\t${i}\t0\tskipped_te_ge_${SBREF_MAX_TE_MS}\t\t" >> "$sources_tsv"
+				continue
+			fi
+
+			sbref_echo=( "$Subdir"/func/unprocessed/"$FuncDirName"/session_"$s"/run_"$r"/SBref*_E"$n_te".nii.gz )
+			[[ "${#sbref_echo[@]}" -gt 0 ]] || {
+				echo "ERROR: missing SBref echo ${n_te} for session_${s}/run_${r}." >&2
+				exit 1
+			}
+			one="$sbref_tmp"/echo_"$n_te".nii.gz
+			cp "${sbref_echo[0]}" "$one"
+			if [[ "$ApplyN4Bias" -eq 1 ]]; then
+				fslmaths "$one" -div "$WDIR"/Bias_field_"$s"_"$r".nii.gz "$one"
+			fi
+			selected_refs+=("$one")
+			selected_tes_seconds+=("$(ms_to_s "$i")")
+			echo -e "${n_te}\t${i}\t1\tSBref\t${sbref_echo[0]}\t${one}" >> "$sources_tsv"
 		done
 
-		# Combine and average across echoes.
-		fslmerge -t "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref.nii.gz "$WDIR"/TMP_*.nii.gz ##> /dev/null 2>&1
-		fslmaths "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref.nii.gz -Tmean "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref.nii.gz
+		COMBINE_TES_SECONDS=("${selected_tes_seconds[@]}")
+		combine_sbref_echoes "$SBREF_ECHO_COMBINATION" "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref.nii.gz "$sbref_tmp" "${selected_refs[@]}"
 		reorient_to_std_inplace "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref.nii.gz
 		cp "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref.nii.gz "$WDIR"/SBref_"$s"_"$r".nii.gz
-		rm "$WDIR"/TMP* # remove helper files
+		if [[ "$SBREF_KEEP_INTERMEDIATES" == "1" ]]; then
+			echo "$sbref_tmp" > "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/SBref_intermediates_dir.txt
+		else
+			rm -rf "$sbref_tmp"
+		fi
+		rm -f "$WDIR"/TMP* # remove helper files
 
 	done
 
@@ -341,18 +540,23 @@ invwarp -w "$XfmsDir"/AvgSBref2nonlin_EpiReg+BBR_warp.nii.gz -o "$XfmsDir"/AvgSB
 # create & define the task-specific coregistration QA folder;
 mkdir -p "$COREG_QA_DIR" #> /dev/null 2>&1
 
-# count the number of sessions
-Sessions=("$Subdir"/func/"$FuncDirName"/session_*)
-Sessions=$(seq $StartSession 1 "${#sessions[@]}")
+mapfile -t Sessions < <(
+	find -L "$Subdir"/func/"$FuncDirName" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -printf '%f\n' |
+		sed 's/^session_//' |
+		awk -v start="$StartSession" '$1 >= start' |
+		sort -n
+)
 
 func () {
 
-	# count number of runs for this session;
-	runs=("$2"/func/"$FuncDirName"/session_"$6"/run_*)
-	runs=$(seq 1 1 "${#runs[@]}")
+	mapfile -t runs < <(
+		find -L "$2"/func/"$FuncDirName"/session_"$6" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
+			sed 's/^run_//' |
+			sort -n
+	)
 
 	# Iterate over runs.
-	for r in $runs ; do
+	for r in "${runs[@]}" ; do
 		RunPEDIR=$(cat "$2"/func/"$FuncDirName"/session_"$6"/run_"$r"/PE.txt 2>/dev/null)
 		if [ -z "$RunPEDIR" ]; then
 			RunPEDIR="$7"
@@ -393,7 +597,8 @@ func () {
 
 export FuncDirName FuncXfmsDir WMSEG_NII FM_DIR COREG_QA_DIR
 export -f func # also coregister individual SBrefs to the target anatomical image
-parallel --jobs $NTHREADS func ::: $MEDIR ::: $Subdir ::: $Subject ::: $DOF ::: $AtlasTemplate ::: $Sessions ::: "$AvgPEDIR" ##> /dev/null 2>&1  
+# Expand the full session array; a scalar array reference selects only the first session.
+parallel --jobs "$NTHREADS" func ::: "$MEDIR" ::: "$Subdir" ::: "$Subject" ::: "$DOF" ::: "$AtlasTemplate" ::: "${Sessions[@]}" ::: "$AvgPEDIR"
 
 # Write run-level pointer files needed by later stages.
 # (brain mask and subcortical mask in functional space)
@@ -495,10 +700,13 @@ fi
 PointerLog="$COREG_QA_DIR/CoregPointerSelection.tsv"
 echo -e "session\trun\trho_avgfm\trho_scan_specific\tselection" > "$PointerLog"
 
-for s in $Sessions ; do
-	runs=("$Subdir"/func/"$FuncDirName"/session_"$s"/run_*)
-	runs=$(seq 1 1 "${#runs[@]}")
-	for r in $runs ; do
+for s in "${Sessions[@]}" ; do
+	mapfile -t runs < <(
+		find -L "$Subdir"/func/"$FuncDirName"/session_"$s" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
+			sed 's/^run_//' |
+			sort -n
+	)
+	for r in "${runs[@]}" ; do
 		AvgWarp="$Subdir/func/xfms/${FuncXfmsDir}/AvgSBref2${PointerWarpSpace}_EpiReg+BBR_warp.nii.gz"
 		ScanWarp="$Subdir/func/xfms/${FuncXfmsDir}/SBref2${PointerWarpSpace}_EpiReg+BBR_S${s}_R${r}_warp.nii.gz"
 		RunSBref="$Subdir/func/$FuncDirName/session_${s}/run_${r}/SBref.nii.gz"

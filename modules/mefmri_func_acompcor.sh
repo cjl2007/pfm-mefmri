@@ -108,6 +108,10 @@ bandpass_with_fsl_bptf() {
     return 2
   fi
 
+  # FSL -bptf expects sigma in volumes. Common guidance:
+  #   hp_sigma ~= 1/(2*f*TR)
+  #   lp_sigma ~= 1/(18*f*TR)
+  # with 'magic' constants chosen to roughly preserve the cutoff frequency.
   if [[ "$low_hz" == "0" || "$low_hz" == "0.0" ]]; then
     hp_sigma="-1"
   else
@@ -141,14 +145,21 @@ PY
 echo "[acompcor] subject=$Subject start_session=$StartSession"
 echo "[acompcor] func/$FuncDirName input=$ACOMPCOR_INPUT_BASENAME output_dir=$ACOMPCOR_OUT_SUBDIR"
 
-sessions=("$Subdir"/func/"$FuncDirName"/session_*)
-sessions=$(seq "$StartSession" 1 "${#sessions[@]}")
+mapfile -t sessions < <(
+  find -L "$Subdir"/func/"$FuncDirName" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -printf '%f\n' |
+    sed 's/^session_//' |
+    awk -v start="$StartSession" '$1 >= start' |
+    sort -n
+)
 
-for s in $sessions; do
-  runs=("$Subdir"/func/"$FuncDirName"/session_"$s"/run_*)
-  runs=$(seq 1 1 "${#runs[@]}")
+for s in "${sessions[@]}"; do
+  mapfile -t runs < <(
+    find -L "$Subdir"/func/"$FuncDirName"/session_"$s" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
+      sed 's/^run_//' |
+      sort -n
+  )
 
-  for r in $runs; do
+  for r in "${runs[@]}"; do
     run_dir="$Subdir/func/$FuncDirName/session_$s/run_$r"
     input_nii="$run_dir/$ACOMPCOR_INPUT_BASENAME"
     motion_txt="$run_dir/$ACOMPCOR_MOTION_BASENAME"
@@ -194,16 +205,20 @@ for s in $sessions; do
       echo "[acompcor] t2smap not found, skipping: $t2smap_src"
     fi
 
+    cleaned_nii="${out_base}.nii.gz"
+    cleaned_full_nii="${out_full_base}.nii.gz"
+    bandpassed_nii="${out_base}${ACOMPCOR_BANDPASS_SUFFIX}.nii.gz"
+    bandpassed_full_nii="${out_full_base}${ACOMPCOR_BANDPASS_SUFFIX}.nii.gz"
     if [[ "$ACOMPCOR_BANDPASS_ENABLE" == "1" ]]; then
       if [[ "$ACOMPCOR_BANDPASS_LOW_HZ" == "0" && "$ACOMPCOR_BANDPASS_HIGH_HZ" == "0" ]]; then
         echo "ERROR: ACOMPCOR_BANDPASS_ENABLE=1 requires ACOMPCOR_BANDPASS_LOW_HZ and/or ACOMPCOR_BANDPASS_HIGH_HZ" >&2
         exit 2
       fi
-      bandpass_with_fsl_bptf "${out_base}.nii.gz" "${out_base}${ACOMPCOR_BANDPASS_SUFFIX}.nii.gz"
-      mv -f "${out_base}${ACOMPCOR_BANDPASS_SUFFIX}.nii.gz" "${out_base}.nii.gz"
-      if [[ -f "${out_full_base}.nii.gz" ]]; then
-        bandpass_with_fsl_bptf "${out_full_base}.nii.gz" "${out_full_base}${ACOMPCOR_BANDPASS_SUFFIX}.nii.gz"
-        mv -f "${out_full_base}${ACOMPCOR_BANDPASS_SUFFIX}.nii.gz" "${out_full_base}.nii.gz"
+      bandpass_with_fsl_bptf "$cleaned_nii" "$bandpassed_nii"
+      mv -f "$bandpassed_nii" "$cleaned_nii"
+      if [[ -f "$cleaned_full_nii" ]]; then
+        bandpass_with_fsl_bptf "$cleaned_full_nii" "$bandpassed_full_nii"
+        mv -f "$bandpassed_full_nii" "$cleaned_full_nii"
       fi
     fi
 

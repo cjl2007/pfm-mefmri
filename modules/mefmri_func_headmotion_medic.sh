@@ -380,7 +380,9 @@ func() {
   fi
   if [[ "$SBREF_KEEP_INTERMEDIATES" == "1" ]]; then
     echo "$EchoWorkDir" > "$ProcDir/MEDIC/headmotion_intermediates_dir.txt"
+    echo "$ProcDir/vols" > "$ProcDir/MEDIC/headmotion_scout_intermediates_dir.txt"
   else
+    rm -rf "$ProcDir/vols"
     rm -rf "$EchoWorkDir"
   fi
 }

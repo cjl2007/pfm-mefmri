@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Render parcel-level Ridge-Fusion ambiguity as whole-brain network stripes.
+"""Render parcel-level RidgePFM ambiguity as whole-brain network stripes.
 
 The input areal parcellation supplies each parcel's assigned network.  The
-Ridge-Fusion probability maps are averaged within each parcel and used to find
+RidgePFM probability maps are averaged within each parcel and used to find
 the strongest alternative network. Qualifying cortical parcels are rendered
 with alternating latitude bands on the spherical surface. Qualifying
 subcortical parcels are rendered both as alternating CIFTI voxels and as an
@@ -426,7 +426,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--left-sphere", required=True, type=Path)
     ap.add_argument("--right-sphere", required=True, type=Path)
     ap.add_argument("--outdir", required=True, type=Path)
-    ap.add_argument("--outfile-prefix", default="RidgeFusion_ArealMultiNetwork")
+    ap.add_argument("--outfile-prefix", default="RidgePFM_ArealMultiNetwork")
     ap.add_argument("--secondary-prob-min", type=float, default=0.20)
     ap.add_argument("--secondary-to-assigned-ratio-min", type=float, default=2.0 / 3.0)
     ap.add_argument("--max-networks-per-parcel", type=int, choices=[2, 3], default=3)
@@ -785,7 +785,7 @@ def main() -> int:
             "they do not by themselves establish biological network overlap."
             if args.parcel_support_csv is not None
             else
-            "Stripes denote parcel-level ambiguity under the stated Ridge-Fusion probability rule; "
+            "Stripes denote parcel-level ambiguity under the stated RidgePFM probability rule; "
             "they do not by themselves establish biological network overlap."
         ),
     }

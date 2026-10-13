@@ -10,7 +10,7 @@
 #   5) Apply that mask to:
 #        - T1w_acpc.nii.gz               -> T1w_acpc_brain.nii.gz
 #        - T1w_acpc_dc_restore.nii.gz    -> T1w_acpc_dc_restore_brain.nii.gz
-#        - T2w_acpc_dc_restore.nii.gz    -> T2w_acpc_dc_restore_brain.nii.gz   (ADDED)
+#        - T2w_acpc_dc_restore.nii.gz    -> T2w_acpc_dc_restore_brain.nii.gz   (when available)
 #
 
 set -euo pipefail
@@ -25,6 +25,10 @@ T1W_DIR="${ANAT_DIR}/T1w"
 
 CHARM_T1="${T1W_DIR}/T1w_acpc_dc_restore.nii.gz"
 CHARM_T2="${T1W_DIR}/T2w_acpc_dc_restore.nii.gz"
+HAS_T2_INPUT=0
+if [ -f "${CHARM_T2}" ]; then
+  HAS_T2_INPUT=1
+fi
 
 # CHARM outputs
 CHARM_TISSUE="${ANAT_DIR}/charm/final_tissues.nii.gz"
@@ -134,6 +138,10 @@ fi
 echo "Preparing CHARM outputs (logging to ${LOG_FILE})"
 cd "${ANAT_DIR}" || exit 1
 
+if [ "${HAS_T2_INPUT}" = "0" ]; then
+  echo "WARNING: Missing optional CHARM T2 input; proceeding in T1-only mode: ${CHARM_T2}" >&2
+fi
+
 if [ "${CHARM_SKIP_RUN}" = "1" ]; then
   if [ -d "${ANAT_DIR}/charm" ]; then
     echo "Skipping CHARM run; using existing output folder: ${ANAT_DIR}/charm" >&2
@@ -177,7 +185,7 @@ PY
 
     charm_rc=0
     set +e
-    if [ -f "${CHARM_T2}" ]; then
+    if [ "${HAS_T2_INPUT}" = "1" ]; then
       "${CHARM_BIN}" "${Subject}" "${CHARM_T1}" "${CHARM_T2}" \
         --skipregisterT2 --forceqform --noneck \
         > "${LOG_FILE}" 2>&1
@@ -343,7 +351,7 @@ fslmaths "${BRAIN_MASK_OUT}" -bin "${BRAIN_MASK_OUT}"
 rm -f "${CHARM_MASK_TMP}"
 
 # ---- apply mask to T1w/T2w images ----
-echo "Applying brain mask to T1w/T2w volumes"
+echo "Applying brain mask to anatomical volumes"
 
 if [ ! -f "${T1W_ACPC}" ]; then
   echo "ERROR: Missing ${T1W_ACPC}" >&2
@@ -355,15 +363,15 @@ if [ ! -f "${T1W_ACPC_DCRESTORE}" ]; then
   exit 1
 fi
 
-if [ ! -f "${T2W_ACPC_DCRESTORE}" ]; then
-  echo "ERROR: Missing ${T2W_ACPC_DCRESTORE}" >&2
-  exit 1
-fi
-
 # Apply
 fslmaths "${T1W_ACPC}" -mas "${BRAIN_MASK_OUT}" "${T1W_ACPC_BRAIN}"
 fslmaths "${T1W_ACPC_DCRESTORE}" -mas "${BRAIN_MASK_OUT}" "${T1W_ACPC_DCRESTORE_BRAIN}"
-fslmaths "${T2W_ACPC_DCRESTORE}" -mas "${BRAIN_MASK_OUT}" "${T2W_ACPC_DCRESTORE_BRAIN}"
+if [ -f "${T2W_ACPC_DCRESTORE}" ]; then
+  fslmaths "${T2W_ACPC_DCRESTORE}" -mas "${BRAIN_MASK_OUT}" "${T2W_ACPC_DCRESTORE_BRAIN}"
+else
+  echo "WARNING: Skipping T2w brain image generation; missing ${T2W_ACPC_DCRESTORE}" >&2
+  rm -f "${T2W_ACPC_DCRESTORE_BRAIN}"
+fi
 
 # ---- create binarized cortical ribbon mask (values 3 and 42) ----
 #echo "Creating CorticalRibbon.nii.gz from ribbon.nii.gz (labels 3 and 42)"

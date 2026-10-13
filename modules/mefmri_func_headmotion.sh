@@ -16,6 +16,14 @@ AtlasSpace=${8:-${AtlasSpace:-T1w}}
 FuncDirName=${9:-${FUNC_DIRNAME:-rest}}
 FuncFilePrefix=${10:-${FUNC_FILE_PREFIX:-Rest}}
 FuncXfmsDir="${FUNC_XFMS_DIRNAME:-$FuncDirName}"
+SBREF_ECHO_COMBINATION="${SBREF_ECHO_COMBINATION:-mean}"
+SBREF_MAX_TE_MS="${SBREF_MAX_TE_MS:-60}"
+SBREF_T2SMAP_MASK_THR="${SBREF_T2SMAP_MASK_THR:-1}"
+SBREF_T2SMAP_THREADS="${SBREF_T2SMAP_THREADS:-1}"
+SBREF_KEEP_INTERMEDIATES="${SBREF_KEEP_INTERMEDIATES:-0}"
+TEDANA_ENV="${TEDANA_ENV:-mefmri_env}"
+TEDANA_ACTIVATE_MODE="${TEDANA_ACTIVATE_MODE:-conda_activate}"
+T2SMAP_BIN="${T2SMAP_BIN:-t2smap}"
 
 case "${AtlasSpace}" in
 	T1w|MNINonlinear) ;;
@@ -27,19 +35,65 @@ esac
 echo "[headmotion] AtlasSpace=${AtlasSpace}"
 echo "[headmotion] Functional naming: func/${FuncDirName}, prefix ${FuncFilePrefix}_*"
 
-# count the number of sessions
-sessions=("$Subdir"/func/"$FuncDirName"/session_*)
-sessions=$(seq $StartSession 1 "${#sessions[@]}")
+float_lt() {
+	python3 - "$1" "$2" <<'PY'
+import sys
+print("1" if float(sys.argv[1]) < float(sys.argv[2]) else "0")
+PY
+}
+
+ms_to_s() {
+	python3 - "$1" <<'PY'
+import sys
+print(f"{float(sys.argv[1]) / 1000.0:.8g}")
+PY
+}
+
+resolve_tedana_bin() {
+	local exe="$1"
+	if [[ "$exe" == */* ]]; then
+		[[ -x "$exe" ]] || { echo "ERROR: configured tedana executable is not executable: $exe" >&2; exit 2; }
+		echo "$exe"
+		return 0
+	fi
+	case "$TEDANA_ACTIVATE_MODE" in
+		direct)
+			command -v "$exe" || { echo "ERROR: could not find $exe on PATH with TEDANA_ACTIVATE_MODE=direct" >&2; exit 2; }
+			;;
+		conda_activate|conda_run)
+			command -v conda >/dev/null 2>&1 || { echo "ERROR: conda is required for TEDANA_ACTIVATE_MODE=$TEDANA_ACTIVATE_MODE" >&2; exit 2; }
+			local base candidate
+			base="$(conda info --base 2>/dev/null || true)"
+			[[ -n "$base" ]] || { echo "ERROR: could not resolve conda base path" >&2; exit 2; }
+			candidate="$base/envs/$TEDANA_ENV/bin/$exe"
+			[[ -x "$candidate" ]] || { echo "ERROR: missing $exe in conda env '$TEDANA_ENV': $candidate" >&2; exit 2; }
+			echo "$candidate"
+			;;
+		*)
+			echo "ERROR: invalid TEDANA_ACTIVATE_MODE=$TEDANA_ACTIVATE_MODE" >&2
+			exit 2
+			;;
+	esac
+}
+
+mapfile -t sessions < <(
+	find -L "$Subdir"/func/"$FuncDirName" -mindepth 1 -maxdepth 1 -type d -name 'session_*' -printf '%f\n' |
+		sed 's/^session_//' |
+		awk -v start="$StartSession" '$1 >= start' |
+		sort -n
+)
 
 # sweep the sessions;
-for s in $sessions ; do
+for s in "${sessions[@]}" ; do
 
-	# count number of runs for this session;
-	runs=("$Subdir"/func/"$FuncDirName"/session_"$s"/run_*)
-	runs=$(seq 1 1 "${#runs[@]}")
+	mapfile -t runs < <(
+		find -L "$Subdir"/func/"$FuncDirName"/session_"$s" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
+			sed 's/^run_//' |
+			sort -n
+	)
 
 	# Iterate over runs.
-	for r in $runs ; do
+	for r in "${runs[@]}" ; do
 
 		# "AllScans.txt" contains 
 		# dir. paths to every scan. 
@@ -71,6 +125,9 @@ func () {
 	# Clean up motion-correction workspace from prior runs.
 	rm -rf "$ProcDir"/MCF #> /dev/null 2>&1
 	rm -rf "$ProcDir"/Rest_AVG_mcf.mat "$ProcDir"/Rest_AVG_mcf.mat+ # remove stale split/mat dirs from prior runs
+	rm -rf "$ProcDir"/vols
+	rm -f "$ProcDir"/Rest_AVG.nii.gz "$ProcDir"/Rest_AVG_mcf.nii.gz "$ProcDir"/Rest_E1.nii.gz
+	rm -f "$ProcDir"/"$FuncFilePrefix"_E*.nii.gz "$ProcDir"/"$FuncFilePrefix"_E*_acpc.nii.gz
 	mkdir "$ProcDir"/vols/
 
 	reorient_to_std_inplace() {
@@ -79,6 +136,69 @@ func () {
 		[[ "$ReorientFuncToStd" == "1" ]] || return 0
 		fslreorient2std "$img" "$tmp"
 		mv -f "$tmp" "$img"
+	}
+
+	combine_scout_echoes() {
+		local method="$1"
+		local out="$2"
+		local tmp_dir="$3"
+		shift 3
+		local refs=("$@")
+		[[ "${#refs[@]}" -gt 0 ]] || { echo "[ERROR] headmotion no echoes selected for scout combination" 1>&2; return 1; }
+		case "$method" in
+			mean)
+				local sum="$tmp_dir/scout_sum.nii.gz"
+				cp "${refs[0]}" "$sum"
+				local idx
+				for ((idx = 1; idx < ${#refs[@]}; idx++)); do
+					fslmaths "$sum" -add "${refs[$idx]}" "$sum"
+				done
+				fslmaths "$sum" -div "${#refs[@]}" "$out"
+				;;
+			sos)
+				local sum="$tmp_dir/scout_sos_sum.nii.gz"
+				local sq idx
+				fslmaths "${refs[0]}" -sqr "$sum"
+				for ((idx = 1; idx < ${#refs[@]}; idx++)); do
+					sq="$tmp_dir/scout_sos_sq_${idx}.nii.gz"
+					fslmaths "${refs[$idx]}" -sqr "$sq"
+					fslmaths "$sum" -add "$sq" "$sum"
+				done
+				fslmaths "$sum" -sqrt "$out"
+				;;
+			first)
+				cp "${refs[0]}" "$out"
+				;;
+			last)
+				cp "${refs[$((${#refs[@]} - 1))]}" "$out"
+				;;
+			t2s|paid)
+				[[ "${#refs[@]}" -ge 2 ]] || { echo "[ERROR] headmotion $method scout combination requires at least two echoes" 1>&2; return 1; }
+				[[ "${#selected_tes_seconds[@]}" -eq "${#refs[@]}" ]] || { echo "[ERROR] headmotion t2smap TE/reference count mismatch" 1>&2; return 1; }
+				local t2smap_bin t2s_dir
+				t2smap_bin="$(resolve_tedana_bin "$T2SMAP_BIN")"
+				t2s_dir="$tmp_dir/t2smap_scout"
+				mkdir -p "$t2s_dir" "$tmp_dir/mplconfig"
+				fslmaths "${refs[0]}" -Tmean -thr "$SBREF_T2SMAP_MASK_THR" -bin "$tmp_dir/t2smap_scout_mask.nii.gz"
+				MPLCONFIGDIR="$tmp_dir/mplconfig" "$t2smap_bin" \
+					-d "${refs[@]}" \
+					-e "${selected_tes_seconds[@]}" \
+					--out-dir "$t2s_dir" \
+					--prefix scout_ \
+					--convention bids \
+					--mask "$tmp_dir/t2smap_scout_mask.nii.gz" \
+					--masktype none \
+					--combmode "$method" \
+					--n-threads "$SBREF_T2SMAP_THREADS" \
+					--overwrite
+				[[ -f "$t2s_dir/scout_desc-optcom_bold.nii.gz" ]] || { echo "[ERROR] t2smap did not create scout_desc-optcom_bold.nii.gz" 1>&2; return 1; }
+				cp "$t2s_dir/scout_desc-optcom_bold.nii.gz" "$out"
+				;;
+			*)
+				echo "[ERROR] unsupported SBREF_ECHO_COMBINATION=$method (use mean|sos|t2s|paid|first|last)" 1>&2
+				return 1
+				;;
+		esac
 	}
 
 	# Read acquisition parameters.
@@ -101,44 +221,42 @@ func () {
 		Intermediate2ACPCWarp=$(cat "$ProcDir"/Intermediate2ACPCWarp.txt)
 	fi
 
-	# Iterate over echoes.
+	# Copy selected echoes for the motion scout. In TOPUP/no-fieldmap mode this
+	# scout intentionally remains in distorted/native EPI space.
+	selected_refs=()
+	selected_tes_seconds=()
+	scout_sources="$ProcDir/HeadmotionScoutEchoSources.tsv"
+	{
+		echo -e "echo\tte_ms\tincluded\tsource_path\tworking_copy"
+	} > "$scout_sources"
 	for i in $te ; do
 
 		# Track the current echo index.
 		n_te=`expr $n_te + 1`
 
-		# skip the longer te;
-		if [[ $i < 60 ]] ; then 
-			raw_echo=( "$UnprocDir"/"$FuncFilePrefix"*_E"$n_te".nii.gz )
-			[[ "${#raw_echo[@]}" -gt 0 ]] || { echo "[ERROR] headmotion missing raw echo $n_te in $UnprocDir" 1>&2; return 1; }
-			echo_copy="$ProcDir"/vols/E"$n_te"_source.nii.gz
-			cp "${raw_echo[0]}" "$echo_copy"
-			reorient_to_std_inplace "$echo_copy"
-
-			# split original 4D resting-state file into single 3D vols.;
-			fslsplit "$echo_copy" \
-			"$ProcDir"/vols/E"$n_te"_
-			rm -f "$echo_copy"
-
+		raw_echo=( "$UnprocDir"/"$FuncFilePrefix"*_E"$n_te".nii.gz )
+		[[ "${#raw_echo[@]}" -gt 0 ]] || { echo "[ERROR] headmotion missing raw echo $n_te in $UnprocDir" 1>&2; return 1; }
+		include=1
+		if [[ "$SBREF_MAX_TE_MS" != "none" ]]; then
+			include="$(float_lt "$i" "$SBREF_MAX_TE_MS")"
 		fi
-	
+		if [[ "$include" != "1" ]]; then
+			echo -e "${n_te}\t${i}\t0\t${raw_echo[0]}\t" >> "$scout_sources"
+			continue
+		fi
+
+		echo_copy="$ProcDir"/vols/E"$n_te"_source.nii.gz
+		cp "${raw_echo[0]}" "$echo_copy"
+		reorient_to_std_inplace "$echo_copy"
+		selected_refs+=("$echo_copy")
+		selected_tes_seconds+=("$(ms_to_s "$i")")
+		echo -e "${n_te}\t${i}\t1\t${raw_echo[0]}\t${echo_copy}" >> "$scout_sources"
 	done
 
-	# Iterate over the individual volumes.
 	raw_e1=( "$UnprocDir"/"$FuncFilePrefix"*_E1.nii.gz )
 	[[ "${#raw_e1[@]}" -gt 0 ]] || { echo "[ERROR] headmotion missing first-echo input in $UnprocDir" 1>&2; return 1; }
-	for i in $(seq -f "%04g" 0 $((`fslnvols "${raw_e1[0]}"` - 1))) ; do
-
-	  	# combine te;
-	  	fslmerge -t "$ProcDir"/vols/AVG_"$i".nii.gz "$ProcDir"/vols/E*_"$i".nii.gz
-		fslmaths "$ProcDir"/vols/AVG_"$i".nii.gz -Tmean "$ProcDir"/vols/AVG_"$i".nii.gz
-
-	done
-
-	# merge the images;
-	fslmerge -t "$ProcDir"/Rest_AVG.nii.gz "$ProcDir"/vols/AVG_*.nii.gz # note: used for estimating head motion;
-	fslmerge -t "$ProcDir"/Rest_E1.nii.gz "$ProcDir"/vols/E1_*.nii.gz # note: used for estimating (very rough)bias field;
-	rm -rf "$ProcDir"/vols/ # remove temporary directory
+	combine_scout_echoes "$SBREF_ECHO_COMBINATION" "$ProcDir"/Rest_AVG.nii.gz "$ProcDir"/vols "${selected_refs[@]}"
+	cp "$ProcDir"/vols/E1_source.nii.gz "$ProcDir"/Rest_E1.nii.gz
 
 	# Use the first echo to estimate the bias field.
 	fslmaths "$ProcDir"/Rest_E1.nii.gz -Tmean "$ProcDir"/Mean.nii.gz
@@ -161,6 +279,11 @@ func () {
 	# Remove helper files.
 	rm -f "$ProcDir"/Mean*.nii.gz
 	rm -f "$ProcDir"/Bias*.nii.gz
+	if [[ "$SBREF_KEEP_INTERMEDIATES" == "1" ]]; then
+		echo "$ProcDir/vols" > "$ProcDir/HeadmotionScoutIntermediatesDir.txt"
+	else
+		rm -rf "$ProcDir"/vols/ # remove temporary directory
+	fi
 
 	# remove the first few volumes if needed;
 	if [[ -f "$ProcDir"/rmVols.txt ]]; then
@@ -274,5 +397,7 @@ func () {
 }
 
 export FuncDirName FuncFilePrefix FuncXfmsDir AtlasSpace FUNC_NOFIELDMAP_MODE
-export -f func # correct for head motion and warp to atlas space in single spline warp
+export SBREF_ECHO_COMBINATION SBREF_MAX_TE_MS SBREF_T2SMAP_MASK_THR SBREF_T2SMAP_THREADS SBREF_KEEP_INTERMEDIATES
+export TEDANA_ENV TEDANA_ACTIVATE_MODE T2SMAP_BIN
+export -f func float_lt ms_to_s resolve_tedana_bin # correct for head motion and warp to atlas space in single spline warp
 parallel --jobs $NTHREADS func ::: $MEDIR ::: $AtlasTemplate ::: $Subdir ::: $DOF ::: $AllScans #> /dev/null 2>&1  

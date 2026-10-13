@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Generate per-run MEDIC field maps/displacement maps with warpkit.
 #
-# This module is intentionally limited to map generation. It does not yet feed
-# MEDIC per-frame warps into headmotion/coregistration; that transform
-# composition must be validated before enabling a full one-interpolation pass.
+# MEDIC requires per-echo phase companions for each functional echo. The
+# pipeline runner uses these outputs for the MEDIC-aware coregistration and
+# headmotion paths when DISTORTION_CORRECTION_MODE=medic.
 
 set -euo pipefail
 shopt -s nullglob

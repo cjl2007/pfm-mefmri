@@ -1,301 +1,90 @@
-# Multi-Echo fMRI Pipeline
+# pfm-mefmri
 
-This repository contains a modular, config-driven multi-echo fMRI preprocessing pipeline.
+A pipeline for processing **individual resting-state and task fMRI data**, including
+longitudinal data acquired across multiple sessions or visits. It integrates
+multi-echo-specific tools and processing frameworks, with support for single-echo
+acquisitions too.
 
-## Release Setup (Required)
+Precision functional mapping (PFM) and individualized TMS targeting through
+[TANS](https://github.com/cjl2007/pfm-tans) can be added at the end of processing.
 
-Before first run on a new machine:
+![An individual brain: multi-echo processing with single-echo support, individual-level network quality control, and optional PFM and TANS modules](docs/assets/individual-workflow.svg)
 
-1. Install all required software listed in `SOFTWARE_DEPENDENCIES.txt`.
-2. Open `config/mefmri_wrapper_config.sh` and complete the environment-specific fields.
-3. If you want external NSI CLI:
-   - set `NSI_USE_EXTERNAL_CLI=1`
-   - set `NSI_EXTERNAL_ROOT` to the local NSI repository path. The release config defaults to the bundled copy at `lib/pfm-nsi`.
-4. If CHARM is not on `PATH`, set `CHARM_BIN` to your local CHARM binary path.
-5. Set `FS_LICENSE` or `FS_LICENSE_FILE` to a valid FreeSurfer `license.txt`.
+## Review individual-level data quality
 
-## Config layout
+**Network Similarity Index (NSI)** quantifies how clearly an individual's
+functional connectivity expresses large-scale network structure
+([Lynch et al., 2026](https://www.cell.com/neuron/fulltext/S0896-6273%2826%2900412-5)).
+**Crawling-seed FC maps** provide a quick visual review of that structure across
+cortex. Together, they help assess whether the data support individual network
+modeling.
 
-The main config is organized in this order:
+<img src="docs/assets/qc-nsi-usability.png" width="660" alt="NSI-based model estimate of precision functional mapping usability for the example participant">
 
-1. Required paths and environment settings
-2. Common user-facing pipeline options
-3. Masking and surface-mapping settings
-4. tedana and denoising settings
-5. Reclassification and NSI settings
-6. Output/reporting/overwrite behavior
-7. Atlas/template/reference inputs
-8. Advanced settings
+*NSI-based estimate of PFM usability.*
 
-This keeps frequent settings near the top and expert knobs near the bottom.
+[![Animated crawling-seed functional connectivity showing how the connectivity pattern changes as the seed moves across cortex](docs/assets/qc-seed-fc.gif)](docs/assets/qc-seed-fc.mp4)
 
-## Running
+*As the seed moves across cortex, its functional-connectivity map updates.
+[Watch the full movie](docs/assets/qc-seed-fc.mp4); the looping preview samples
+frames from the full cortical sweep.*
 
-```bash
-bash bin/mefmri_pipeline.sh <SubjectDir> [ConfigFile]
-```
+![Animated coregistration review cycling from an anatomical anchor through 26 functional references across 13 sessions](docs/assets/qc-coreg-over-time.gif)
 
-Example:
+*Coregistration over time: cycle through 26 runs across 13 sessions to inspect
+alignment consistency in a fast, repeating loop.*
 
-```bash
-bash bin/mefmri_pipeline.sh /path/to/study/ME06
-```
+![Motion, framewise displacement, and grayplots through echo combination, MEICA, and MGTR for session 1 run 1](docs/assets/qc-motion-grayplots.png)
 
-## Importing Inputs
+*Run-level motion and signal review through denoising.*
 
-Use the unified importer for either raw scanner exports/DICOMs or BIDS NIfTI
-datasets:
+[Full output gallery](docs/output-gallery.md) · [QC guide](docs/qc-modules.md).
 
-```bash
-bash bin/mefmri_import.sh <InputDir> <...args...>
-```
+## Optional precision functional mapping
 
-The importer auto-detects raw DICOM inputs from DICOM-like files (`*.dcm` or
-`DICOMDIR`) and BIDS inputs from `sub-*` NIfTIs. You can override detection with
-`--input-type raw` or `--input-type bids`.
+**RidgePFM** combines individual functional connectivity with network priors.
+Default weights: **FC = 1.0**, **spatial prior = 0.05**.
 
-Examples:
+![RidgePFM: winner-take-all network maps on the left and the DMN-Parietal probabilistic network-weight map on the right](docs/assets/pfm-ridge-fusion.png)
 
-```bash
-# Raw scanner export, optionally running/staging NORDIC.
-bash bin/mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 config/mefmri_import_raw_config.sh --session 1 --nordic
+*Left: winner-take-all network maps. Right: the probabilistic / weighted map for
+DMN-Parietal, showing its continuous network weights.*
 
-# BIDS root.
-bash bin/mefmri_import.sh /path/to/bids 06 /path/to/study/ME06 --task rest --mode symlink --overwrite
-```
+[Mapping options and output files](docs/pfm-outputs.md). This example uses existing
+pooled-data maps, not a rerun with the new default. Keep separate visit or epoch
+analyses when studying change. [Repeat-sampling guidance](docs/individual-longitudinal-studies.md).
 
-The backend-specific scripts remain available for advanced/debug use:
-`bin/mefmri_import_raw.sh` and `bin/mefmri_import_bids.sh`.
+## Optional individualized neuromodulation
 
-## Expected Input Layout
+[TANS](https://github.com/cjl2007/pfm-tans) uses individual network maps and anatomy
+to optimize coil position and orientation, explore modeled electric-field dose,
+and export neuronavigation targets. It runs as an **optional final module** and
+is installed separately.
 
-The default task is resting state:
+![TANS example showing an individualized network target, coil-position search, and modeled electric fields](docs/assets/tans-sal-optimization.png)
 
-```bash
-FUNC_DIRNAME="rest"
-FUNC_FILE_PREFIX="Rest"
-```
+*Separate SAL targeting example; this curated illustration includes schematic
+search-history scores and an illustrative final placement.*
 
-This is only a convention. Any task folder under `func/unprocessed/` can be
-processed independently with the same anatomical outputs by setting
-`FUNC_DIRNAME` and `FUNC_FILE_PREFIX` in the config. For example, a task can use
-`FUNC_DIRNAME="<TaskName>"` and `FUNC_FILE_PREFIX="<TaskPrefix>"`.
+[Integration guide](docs/tans-integration.md) ·
+[Configuration example](config/tans_module.example.sh) ·
+[TANS GitHub](https://github.com/cjl2007/pfm-tans).
 
-Functional inputs and field maps are task-local:
+## Get started
 
-```text
-<SubjectDir>/
-  anat/
-    unprocessed/
-      T1w/
-      T2w/
-  func/
-    unprocessed/
-      rest/
-        field_maps/
-          AP_S1_R1.nii.gz
-          AP_S1_R1.json
-          PA_S1_R1.nii.gz
-          PA_S1_R1.json
-        session_1/
-          run_1/
-            Rest_S1_R1_E1.nii.gz
-            Rest_S1_R1_E1.json
-            SBref_S1_R1_E1.nii.gz
-            SBref_S1_R1_E1.json
-      <TaskName>/
-        field_maps/
-          AP_S1_R1.nii.gz
-          PA_S1_R1.nii.gz
-        session_1/
-          run_1/
-            <TaskPrefix>_S1_R1_E1.nii.gz
-            <TaskPrefix>_S1_R1_E1.json
-```
-
-The fieldmap stage reads from
-`func/unprocessed/<FUNC_DIRNAME>/field_maps/` and writes processed field maps to
-`func/<FUNC_DIRNAME>/field_maps/`. This prevents field maps acquired for one
-task or acquisition from being reused for another task by accident.
-
-Distortion correction is selected with `DISTORTION_CORRECTION_MODE`:
-
-- `topup`: reverse phase-encoding spin-echo EPI field maps, expected as paired
-  `AP_S*_R*.nii.gz` and `PA_S*_R*.nii.gz` files with JSON metadata.
-- `direct_b0`: gradient-echo/direct B0 field mapping, expected as paired
-  phase/phasediff and magnitude files. Legacy names such as
-  `FieldMap_S1_R1.nii.gz` plus `Mag_S1_R1.nii.gz` are supported, as are
-  BIDS-style `*_phasediff.nii.gz` plus `*_magnitude1.nii.gz` patterns. Set
-  `FM_DIRECT_B0_DELTA_TE_MS` for the `fsl_prepare_fieldmap` delta TE.
-- `medic`: MEDIC/warpkit-derived correction path.
-- `none`: skip susceptibility correction and write zero-unwarp placeholders.
-
-Set `FUNC_DIRNAME="All"` to process every task folder discovered under
-`func/unprocessed/`. Anatomy runs once, then each task is processed separately
-with its own functional runs, field maps, transforms, QA, concatenation, NSI,
-and PFM outputs.
-
-For legacy datasets with shared field maps, you can override:
+1. Clone with `--recurse-submodules` and install the [dependencies](docs/dependencies.md).
+2. Follow [configuration setup](docs/configuration.md) to copy the templates into
+   your study folder and set software paths, acquisition settings, and optional modules.
+3. [Import your data](docs/configuration.md#5-configure-import-and-prepare-inputs),
+   validate one subject, then run:
 
 ```bash
-FM_RAW_DIR_REL="func/unprocessed/field_maps"
-FM_OUT_DIR_REL="func/field_maps"
+bash /path/to/pfm-mefmri/bin/mefmri_pipeline.sh \
+  /data/MyStudy/SUB001 /data/MyStudy/config/mefmri.sh
 ```
 
-## FreeSurfer License
+[Quick start](docs/quick-start.md) · [Workflow stages](docs/pipeline-overview.md) ·
+[Output locations](docs/output-map.md) · [All guides](docs/README.md).
 
-Set either `FS_LICENSE` or `FS_LICENSE_FILE` to a readable `license.txt` path.
-
-- `anat_hcp` now performs a fail-fast license preflight.
-
-## Tool Path Assumptions (FSL/Workbench/MSM)
-
-The modules call commands like `fslmaths` and `wb_command` by name. This is fine as long as environment setup exposes those binaries on `PATH` (typically via `SetUpHCPPipeline.sh`).
-
-For HCP PostFreeSurfer `--regname=MSMSulc` (the pipeline default), you also need an HCP-compatible MSM (Multimodal Surface Matching) build that supports `--regoption`. Configure this via `MSMBINDIR` (directory containing `msm`, or the msm binary itself). If MSM is not available, set `HCP_REGNAME=FS` in your config to skip MSMSulc registration.
-
-## Provenance
-
-Canonical output filenames are preserved. Provenance is written through logs and run metadata snapshots.
-
-When `RUN_CONFIG_SNAPSHOT=1`, each run writes:
-
-- `func/<FUNC_DIRNAME>/qa/RunMetadata/pipeline_run_<timestamp>.txt`
-
-This captures key settings (masking mode, tedana mode, PCA mode, classifier mode, report mode) without renaming canonical outputs.
-
-## NSI output and memory controls
-
-When `NSI_USE_EXTERNAL_CLI=1`, NSI outputs are written to:
-
-- `func/<FUNC_DIRNAME>/qa/NSI/`
-
-The pipeline writes a run manifest there (`<prefix>_run_config.txt`) with the exact CLI call and NSI settings.
-
-For RAM control on Python NSI runs:
-
-- `NSI_EXTERNAL_THREADS` limits BLAS/OpenMP thread counts
-- `NSI_EXTERNAL_SPARSE_FRAC` controls sparse mode for lower memory (set empty for full computation)
-
-## PFM Strategies
-
-PFM supports two strategies through `PFM_STRATEGY`.
-
-`infomap` is the community-detection workflow previously used by our group,
-including Lynch et al. 2024 Nature. The current Python path preserves that basic
-approach, then optionally maps subject-specific Infomap communities onto
-canonical network IDs with `PFM_INFOMAP_NETWORK_MAPPING_ENABLE=1`. This mapping
-is a post-processing step: it does not force Infomap to return a fixed number of
-communities, and multiple communities may receive the same canonical network
-label. The labeler combines each community's functional similarity to the
-network priors with its spatial overlap, writes confidence maps/tables, flags
-low-confidence assignments for review, supports manual correction tables, and
-builds mode/probability consensus outputs across graph densities.
-
-`ridge_fusion` is a newer, faster PFM strategy. It estimates network assignments
-with a ridge-regularized fusion of subject functional connectivity evidence and
-spatial/network priors. The prior-guided formulation is intended to reduce the
-runtime and improve stability on difficult or lower-quality datasets while still
-allowing the subject data to drive deviations from the priors.
-For inputs without GSR/MGTR-style global signal control, set
-`PFM_RF_FC_DEMEAN=1` to demean each FC fingerprint before ridge fusion.
-
-Both strategies can optionally feed the areal parcellation step
-(`PFM_AREAL_ENABLE=1`), which sub-parcellates the network-level output into
-smaller areal parcels.
-
-Ridge-Fusion also has a disabled-by-default experimental multi-network layer.
-Set `PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=1` with areal parcellation to test
-fixed parcels across blocked random temporal thirds, calibrate added-network
-held-out gains with a parcelwise candidate-identity null and cortex/subcortex
-FDR, and emit both whole-parcel and localized two-/three-network stripe maps.
-The stricter max-statistic result is retained as a high-confidence tier. See
-`docs/pfm-outputs.md` for interpretation and controls. Use
-`PFM_RF_MULTINETWORK_STRIPE_PRESET="strict|balanced|loose|custom"` as the
-single user-facing tightness control; `balanced` is the recommended
-experimental starting point. Preliminary behavior is encouraging, but the
-feature remains opt-in while it is tested across more participants and
-acquisition conditions.
-
-By default, PFM writes strategy-specific outputs:
-
-```text
-func/<FUNC_DIRNAME>/PFM/
-  RidgeFusion/
-  Infomap/
-```
-
-Infomap uses the Python engine in `lib/pfm_infomap.py`. If `infomap` is not on
-`PATH`, set `PFM_INFOMAP_BINARY=/full/path/to/infomap`. For bring-up,
-`PFM_INFOMAP_DRY_RUN=1` validates argument wiring without running the heavy
-community-detection computation.
-
-With `PFM_INFOMAP_NETWORK_MAPPING_ENABLE=1`, the Infomap path writes:
-
-- `PFM/Infomap/Bipartite_PhysicalCommunities.dtseries.nii`
-- `PFM/Infomap/InfomapNetworkLabels_ModeConsensus.dlabel.nii`
-- `PFM/Infomap/InfomapNetworkLabels_ProbabilityConsensus.dscalar.nii`
-- `PFM/Infomap/GraphDensity_<value>/InfomapNetworkLabels_Density<value>.dlabel.nii`
-- `PFM/Infomap/GraphDensity_<value>/InfomapNetworkLabels_Density<value>_Confidence.dscalar.nii`
-- `PFM/Infomap/GraphDensity_<value>/InfomapNetworkLabels_Density<value>_FC.dscalar.nii`
-- `PFM/Infomap/GraphDensity_<value>/InfomapNetworkLabels_Density<value>_CommunityTable.csv`
-- `PFM/Infomap/GraphDensity_<value>/InfomapNetworkLabels_Density<value>_AmbiguousCommunities.csv`
-
-Each `GraphDensity_<value>/` folder also includes review-friendly files from
-the older MATLAB workflow:
-
-- `Bipartite_PhysicalCommunities+AlgorithmicLabeling.dlabel.nii`
-- `Bipartite_PhysicalCommunities+AlgorithmicLabeling_InfoMapCommunities.dlabel.nii`
-- `Bipartite_PhysicalCommunities+AlgorithmicLabeling_FC_WholeBrain.dtseries.nii`
-- `Bipartite_PhysicalCommunities+AlgorithmicLabeling_FC_btwn_InfoMapCommunities.dtseries.nii`
-- `Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.csv`
-- `Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.xlsx` when `openpyxl` is available
-
-`Density<value>` uses the actual graph density, for example `Density0.0005`.
-
-Manual Infomap edits are applied with the separate `pfm_update` stage. Enable
-`PFM_INFOMAP_UPDATE_ENABLE=1` and run from `START_FROM_MODULE=pfm_update`; the
-module scans the per-density manual correction tables, applies edits without
-rerunning Infomap, and writes adjusted density and consensus labels.
-
-Set `PFM_HOMOGENEITY_TEST_ENABLE=1` to run size-weighted community homogeneity
-diagnostics. For Infomap, the test runs across graph densities and writes
-`PFM/Infomap/HomogeneityTest/` summaries and figures. If
-`PFM_HOMOGENEITY_ROTATIONS_CIFTI` points to a rotation-index CIFTI, the figure
-shows gray spin-null points, red empirical points, and a star on the selected
-best density. For Ridge-Fusion, the same diagnostic runs on the final map.
-
-With areal parcellation enabled, the final areal output is named from the
-network-label prefix, for example `InfomapNetworkLabels+ArealParcellation.dlabel.nii`
-or `RidgeFusion_VTX+ArealParcellation.dlabel.nii`.
-
-## Crawling Seed FC Movie QC
-
-The crawling seed FC movie is an optional concat-stage QC sub-step and is
-independent of NSI. Enable it with:
-
-```bash
-CRAWLING_SEED_FC_ENABLE=1
-```
-
-It runs after concat and before NSI when enabled. To rerun concat and the
-optional movie, use `START_FROM_MODULE=concat` and `STOP_AFTER_MODULE=concat`.
-The movie derives the final concatenated CIFTI by default and writes to:
-
-```text
-func/<FUNC_DIRNAME>/qa/CrawlingSeedFC/
-  sub-<Subject>.mp4
-```
-
-Set `CRAWLING_SEED_FC_WB_SURFER2` to a direct `wb_surfer2` path, or set
-`CRAWLING_SEED_FC_WB_SURFER2_CONDA_ENV` for a conda environment containing
-`wb_surfer2`. Defaults are tuned for a small review movie:
-`1280x720`, `10` fps, and `CRAWLING_SEED_FC_TARGET_SIZE_MB=10`.
-The default Workbench scene and vertex path are packaged in
-`res0urces/CrawlingSeedFC/`. The intermediate dense correlation CIFTI is
-deleted by default after rendering; set `CRAWLING_SEED_FC_KEEP_DCONN=1` only
-when debugging. The scene is rewritten to use the subject's HCP-generated 32k
-surfaces in the active analysis space: `anat/T1w/fsaverage_LR32k` for
-`AtlasSpace=T1w` and `anat/MNINonLinear/fsaverage_LR32k` for MNI analyses.
-For T1w runs, flat-map tabs use the subject's MNINonLinear flat/sphere surfaces
-because HCP does not write T1w flatmaps.
+Research software. Review participant data quality and modeled outputs before
+use; participant-derived figures require permission before public distribution.

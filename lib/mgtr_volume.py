@@ -27,7 +27,7 @@ def mgtr(subdir: str, input_nii: str, out_mgtr_base: str, out_betas_base: str) -
     if atlas_space not in ("T1w", "MNINonlinear"):
         raise RuntimeError(f"Invalid AtlasSpace={atlas_space} (expected T1w or MNINonlinear)")
 
-    xfms_dir = os.environ.get("FUNC_XFMS_DIRNAME", "rest")
+    xfms_dir = os.environ.get("FUNC_XFMS_DIRNAME") or os.environ.get("FUNC_DIRNAME", "rest")
     mask_path = os.path.join(subdir, "func", "xfms", xfms_dir, "T1w_acpc_brain_func_mask.nii.gz")
     if not os.path.isfile(mask_path):
         # Compatibility fallback for older pre-refactor outputs.

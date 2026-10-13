@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# ICA-AROMA denoising with component surface mapping + NSI screening.
+# Classic ICA-AROMA denoising.
+#
+# A future experimental NSI/surface reclassification path is retained behind
+# AROMA_NSI_RECLASSIFY_ENABLE=1, but the default behavior is classic AROMA.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -27,6 +30,7 @@ AROMA_CLEAN_TYPE="${AROMA_CLEAN_TYPE:-nonaggr}" # nonaggr|aggr
 AROMA_BIN_OVERRIDE="${AROMA_BIN_OVERRIDE:-}"
 AROMA_PYTHON="${AROMA_PYTHON:-python}"
 AROMA_SCREEN_PYTHON="${AROMA_SCREEN_PYTHON:-${PIPELINE_PYTHON:-python3}}"
+AROMA_NSI_RECLASSIFY_ENABLE="${AROMA_NSI_RECLASSIFY_ENABLE:-0}"
 AROMA_NSI_THRESHOLD="${AROMA_NSI_THRESHOLD:-0.05}"
 SINGLE_ECHO_ECHO_INDEX="${SINGLE_ECHO_ECHO_INDEX:-1}"
 PIPELINE_SOURCE_FUNC_TAG="${PIPELINE_SOURCE_FUNC_TAG:-E${SINGLE_ECHO_ECHO_INDEX}}"
@@ -58,9 +62,15 @@ case "$AROMA_CLEAN_TYPE" in
   nonaggr|aggr) ;;
   *) die "Invalid AROMA_CLEAN_TYPE=$AROMA_CLEAN_TYPE (use nonaggr|aggr)" ;;
 esac
+case "$AROMA_NSI_RECLASSIFY_ENABLE" in
+  0|1) ;;
+  *) die "Invalid AROMA_NSI_RECLASSIFY_ENABLE=$AROMA_NSI_RECLASSIFY_ENABLE (use 0|1)" ;;
+esac
 
 need_cmd fsl_regfilt
-need_cmd wb_command
+if [[ "$AROMA_NSI_RECLASSIFY_ENABLE" == "1" ]]; then
+  need_cmd wb_command
+fi
 if [[ "$AROMA_ACTIVATE_MODE" != "direct" ]]; then
   need_cmd conda
 fi
@@ -110,8 +120,10 @@ if [[ -z "$AROMA_BIN" ]]; then
   fi
   die "Could not resolve ICA_AROMA.py for env=$AROMA_ENV mode=$AROMA_ACTIVATE_MODE. Ensure ICA-AROMA is installed so that 'ICA_AROMA.py' is on PATH in that env, or set AROMA_BIN_OVERRIDE."
 fi
-[[ -f "$AROMA_SCREEN_PY" ]] || die "Missing aroma screening backend: $AROMA_SCREEN_PY"
-[[ -f "$NETWORK_PRIORS_MAT" ]] || die "Missing Priors.mat for ICA-AROMA NSI screening: $NETWORK_PRIORS_MAT"
+if [[ "$AROMA_NSI_RECLASSIFY_ENABLE" == "1" ]]; then
+  [[ -f "$AROMA_SCREEN_PY" ]] || die "Missing aroma screening backend: $AROMA_SCREEN_PY"
+  [[ -f "$NETWORK_PRIORS_MAT" ]] || die "Missing Priors.mat for ICA-AROMA NSI screening: $NETWORK_PRIORS_MAT"
+fi
 
 aroma_exec() {
   local bin="$1"
@@ -191,6 +203,12 @@ map_qc_volume_to_cifti() {
   rm -rf "$tmpdir" 2>/dev/null || true
 }
 
+component_filter_csv() {
+  local path="$1"
+  [[ -f "$path" ]] || return 0
+  tr ', \n\t' ',' < "$path" | sed 's/,,*/,/g; s/^,//; s/,$//'
+}
+
 list_runs() {
   find -L "$Subdir/func/$FuncDirName" -mindepth 2 -maxdepth 2 -type d -name 'run_*' | sort -V
 }
@@ -261,32 +279,44 @@ process_run() {
   [[ -f "$comp_nii" ]] || die "ICA-AROMA did not produce melodic_IC.nii.gz for $rel"
   [[ -f "$mix_tsv" ]] || die "ICA-AROMA did not produce melodic_mix for $rel"
 
-  map_qc_volume_to_cifti "$comp_nii" "$comp_cifti" "$tmpdir" "$(fslval "$comp_nii" dim4)"
+  if [[ "$AROMA_NSI_RECLASSIFY_ENABLE" == "1" ]]; then
+    map_qc_volume_to_cifti "$comp_nii" "$comp_cifti" "$tmpdir" "$(fslval "$comp_nii" dim4)"
 
-  "$AROMA_SCREEN_PYTHON" "$AROMA_SCREEN_PY" \
-    --aroma-dir "$out_dir" \
-    --betas-cifti "$comp_cifti" \
-    --priors-mat "$NETWORK_PRIORS_MAT" \
-    --nsi-threshold "$AROMA_NSI_THRESHOLD" \
-    --kill-priority-enable "${AROMA_NSI_KILL_PRIORITY_ENABLE:-1}" \
-    --kill-priority-w-nsi "${AROMA_NSI_KILL_PRIORITY_W_NSI:-0.60}" \
-    --kill-priority-w-var "${AROMA_NSI_KILL_PRIORITY_W_VAR:-0.25}" \
-    --kill-priority-w-aroma "${AROMA_NSI_KILL_PRIORITY_W_AROMA:-0.15}" \
-    --kill-var-floor-quantile "${AROMA_NSI_KILL_VAR_FLOOR_QUANTILE:-0.60}" \
-    --kill-cumvar-cap "${AROMA_NSI_KILL_CUMVAR_CAP:-0.95}" \
-    --kill-max-frac "${AROMA_NSI_KILL_MAX_FRAC:-1.00}" \
-    --kill-max-count "${AROMA_NSI_KILL_MAX_COUNT:-0}" \
-    --motion-priority-enable "${AROMA_MOTION_PRIORITY_ENABLE:-0}" \
-    --motion-remove-frac "${AROMA_MOTION_REMOVE_FRAC:-1.00}" \
-    --motion-var-floor-quantile "${AROMA_MOTION_VAR_FLOOR_QUANTILE:-0.60}" \
-    --motion-cumvar-cap "${AROMA_MOTION_CUMVAR_CAP:-1.00}" \
-    --motion-priority-w-var "${AROMA_MOTION_PRIORITY_W_VAR:-0.50}" \
-    --motion-priority-w-aroma "${AROMA_MOTION_PRIORITY_W_AROMA:-0.50}" \
-    --make-plot "${AROMA_SCREEN_MAKE_PLOT:-1}" \
-    --out-dir "$screen_dir"
+    "$AROMA_SCREEN_PYTHON" "$AROMA_SCREEN_PY" \
+      --aroma-dir "$out_dir" \
+      --betas-cifti "$comp_cifti" \
+      --priors-mat "$NETWORK_PRIORS_MAT" \
+      --nsi-threshold "$AROMA_NSI_THRESHOLD" \
+      --kill-priority-enable "${AROMA_NSI_KILL_PRIORITY_ENABLE:-1}" \
+      --kill-priority-w-nsi "${AROMA_NSI_KILL_PRIORITY_W_NSI:-0.60}" \
+      --kill-priority-w-var "${AROMA_NSI_KILL_PRIORITY_W_VAR:-0.25}" \
+      --kill-priority-w-aroma "${AROMA_NSI_KILL_PRIORITY_W_AROMA:-0.15}" \
+      --kill-var-floor-quantile "${AROMA_NSI_KILL_VAR_FLOOR_QUANTILE:-0.60}" \
+      --kill-cumvar-cap "${AROMA_NSI_KILL_CUMVAR_CAP:-0.95}" \
+      --kill-max-frac "${AROMA_NSI_KILL_MAX_FRAC:-1.00}" \
+      --kill-max-count "${AROMA_NSI_KILL_MAX_COUNT:-0}" \
+      --motion-priority-enable "${AROMA_MOTION_PRIORITY_ENABLE:-0}" \
+      --motion-remove-frac "${AROMA_MOTION_REMOVE_FRAC:-1.00}" \
+      --motion-var-floor-quantile "${AROMA_MOTION_VAR_FLOOR_QUANTILE:-0.60}" \
+      --motion-cumvar-cap "${AROMA_MOTION_CUMVAR_CAP:-1.00}" \
+      --motion-priority-w-var "${AROMA_MOTION_PRIORITY_W_VAR:-0.50}" \
+      --motion-priority-w-aroma "${AROMA_MOTION_PRIORITY_W_AROMA:-0.50}" \
+      --make-plot "${AROMA_SCREEN_MAKE_PLOT:-1}" \
+      --out-dir "$screen_dir"
+    if [[ -s "$rejected_1b" ]]; then
+      final_reject_csv="$(paste -sd, "$rejected_1b")"
+    fi
+  else
+    mkdir -p "$screen_dir"
+    {
+      echo "Classic ICA-AROMA mode."
+      echo "AROMA_NSI_RECLASSIFY_ENABLE=0, so NSI/surface component reclassification was not applied."
+      echo "Future experimental AROMA reclassification can be enabled explicitly after validation."
+    } > "$screen_dir/README.txt"
+    final_reject_csv="$(component_filter_csv "$classified_motion")"
+  fi
 
-  if [[ -s "$rejected_1b" ]]; then
-    final_reject_csv="$(paste -sd, "$rejected_1b")"
+  if [[ -n "$final_reject_csv" ]]; then
     if [[ "$AROMA_CLEAN_TYPE" == "aggr" ]]; then
       fsl_regfilt --in="$input_vol" --design="$mix_tsv" --filter="$final_reject_csv" --out="$denoised_out" -a
     else
@@ -299,7 +329,7 @@ process_run() {
   log "done $rel"
 }
 
-log "start subject=${Subject} env=${AROMA_ENV} mode=${AROMA_ACTIVATE_MODE} method=${AROMA_CLEAN_TYPE} nsi_threshold=${AROMA_NSI_THRESHOLD}"
+log "start subject=${Subject} env=${AROMA_ENV} mode=${AROMA_ACTIVATE_MODE} method=${AROMA_CLEAN_TYPE} nsi_reclassify=${AROMA_NSI_RECLASSIFY_ENABLE}"
 
 mapfile -t RUNS < <(list_runs)
 [[ "${#RUNS[@]}" -gt 0 ]] || die "No run directories found in $Subdir/func/$FuncDirName"

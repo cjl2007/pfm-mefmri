@@ -124,6 +124,13 @@ def _load_priors_fc(priors_mat: Path) -> np.ndarray:
 
 
 def _ridge_r2(maps: np.ndarray, priors_fc: np.ndarray, lam: float = 10.0) -> np.ndarray:
+    r2 = _ridge_r2_raw(maps, priors_fc, lam=lam)
+    # Published ICA-map NSI is ridge R2 against Priors.FC, explicitly clipped
+    # into [0, 1]. Preserve raw negative values in diagnostics downstream.
+    return np.where(np.isfinite(r2), np.clip(r2, 0.0, 1.0), 0.0)
+
+
+def _ridge_r2_raw(maps: np.ndarray, priors_fc: np.ndarray, lam: float = 10.0) -> np.ndarray:
     # maps: n_vertices x n_components
     # priors_fc: n_vertices x n_templates
     u, s, vt = np.linalg.svd(priors_fc, full_matrices=False)
@@ -134,13 +141,35 @@ def _ridge_r2(maps: np.ndarray, priors_fc: np.ndarray, lam: float = 10.0) -> np.
     yhat = priors_fc @ b
     sse = np.sum((maps - yhat) ** 2, axis=0)
     sst = np.sum((maps - np.mean(maps, axis=0, keepdims=True)) ** 2, axis=0)
-    r2 = 1 - sse / np.maximum(sst, np.finfo(np.float64).eps)
-    r2[r2 < 0] = np.nan
-    return r2
+    return 1 - sse / np.maximum(sst, np.finfo(np.float64).eps)
 
 
-def _compute_nsi_from_cifti(betas_cifti: Path, priors_mat: Path, n_components: int) -> np.ndarray:
-    priors_fc = _load_priors_fc(priors_mat)
+def _template_corr_details(maps: np.ndarray, priors_fc: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    x = maps - np.nanmean(maps, axis=0, keepdims=True)
+    t = priors_fc - np.nanmean(priors_fc, axis=0, keepdims=True)
+    num = t.T @ x
+    den = np.sqrt(
+        np.sum(t * t, axis=0, keepdims=True).T
+        * np.sum(x * x, axis=0, keepdims=True)
+    )
+    r = np.divide(num, den, out=np.full_like(num, np.nan), where=den > 0)
+    all_nan = np.all(~np.isfinite(r), axis=0)
+    safe_r = np.where(np.isfinite(r), r, 0.0)
+    best_idx = np.argmax(np.abs(safe_r), axis=0)
+    signed = safe_r[best_idx, np.arange(safe_r.shape[1])]
+    max_abs = np.abs(signed)
+    signed[all_nan] = np.nan
+    max_abs[all_nan] = np.nan
+    best_idx = best_idx.astype(float)
+    best_idx[all_nan] = np.nan
+    return max_abs, signed, best_idx + 1
+
+
+def _read_cortical_component_maps_from_cifti(
+    betas_cifti: Path,
+    priors_fc: np.ndarray,
+    n_components: int,
+) -> np.ndarray:
     img = nib.load(str(betas_cifti))
     data = np.asarray(img.dataobj, dtype=np.float64)
 
@@ -162,10 +191,29 @@ def _compute_nsi_from_cifti(betas_cifti: Path, priors_mat: Path, n_components: i
         )
 
     # Legacy convention uses cortical rows aligned to Priors.FC.
-    cortical_maps = maps[: priors_fc.shape[0], :]
-    nsi = _ridge_r2(cortical_maps, priors_fc, lam=10.0)
-    nsi = np.where(np.isnan(nsi), 0.0, nsi)
-    return nsi
+    return maps[: priors_fc.shape[0], :]
+
+
+def _compute_nsi_metrics_from_cifti(betas_cifti: Path, priors_mat: Path, n_components: int) -> dict[str, np.ndarray]:
+    priors_fc = _load_priors_fc(priors_mat)
+    cortical_maps = _read_cortical_component_maps_from_cifti(betas_cifti, priors_fc, n_components)
+    maxabs_corr, signed_corr, best_prior = _template_corr_details(cortical_maps, priors_fc)
+    ridge_raw = _ridge_r2_raw(cortical_maps, priors_fc, lam=10.0)
+    nsi = np.where(np.isfinite(ridge_raw), np.clip(ridge_raw, 0.0, 1.0), 0.0)
+    return {
+        "nsi": nsi,
+        "nsi_fc_maxabs_corr": maxabs_corr,
+        "nsi_fc_best_signed_corr": signed_corr,
+        "nsi_fc_best_prior": best_prior,
+        "nsi_fc_ridge_r2_raw": ridge_raw,
+        "nsi_fc_ridge_r2_pos": nsi,
+        "nsi_ridge_negative_r2": np.isfinite(ridge_raw) & (ridge_raw < 0),
+        "nsi_ridge_nonfinite": ~np.isfinite(ridge_raw),
+    }
+
+
+def _compute_nsi_from_cifti(betas_cifti: Path, priors_mat: Path, n_components: int) -> np.ndarray:
+    return _compute_nsi_metrics_from_cifti(betas_cifti, priors_mat, n_components)["nsi"]
 
 
 def _compute_template_rho_from_cifti(betas_cifti: Path, priors_mat: Path, n_components: int) -> np.ndarray:
@@ -560,11 +608,11 @@ def main() -> int:
         betas_cifti = Path(args.betas_cifti) if args.betas_cifti else (ted_dir / "betas_OC.dtseries.nii")
         priors_mat = Path(args.priors_mat) if args.priors_mat else None
         if priors_mat and priors_mat.is_file() and betas_cifti.is_file():
-            nsi = _compute_nsi_from_cifti(betas_cifti, priors_mat, len(df))
+            nsi_metrics = _compute_nsi_metrics_from_cifti(betas_cifti, priors_mat, len(df))
             subcort_ratio = _compute_subcortical_ratio_from_cifti(betas_cifti, len(df))
             out = _nsi_refine(
                 df,
-                nsi,
+                nsi_metrics["nsi"],
                 subcort_ratio,
                 guardrail=bool(args.guardrail_kappa_rho),
                 rescue_nsi=args.rescue_nsi,
@@ -583,6 +631,9 @@ def main() -> int:
                 kill_var_floor_quantile=args.kill_var_floor_quantile,
                 kill_cumvar_cap=args.kill_cumvar_cap,
             )
+            for col, val in nsi_metrics.items():
+                if col != "nsi":
+                    out[col] = val
         else:
             mode_used = "none_fallback"
             out = df.copy()

@@ -1,14 +1,14 @@
 #!/bin/bash
 # CJL; (cjl2007@med.cornell.edu)
 
-Subject="${1:?missing Subject}"
-StudyFolder="${2:?missing StudyFolder}"
-Subdir="$StudyFolder/$Subject"
-MEDIR="${3:?missing MEDIR}"
-StartSession="${4:?missing StartSession}"
+Subject=$1
+StudyFolder=$2
+Subdir="$StudyFolder"/"$Subject"
+MEDIR=$3
+StartSession=$4
 FuncDirName="${FUNC_DIRNAME:-rest}"
 FuncFilePrefix="${FUNC_FILE_PREFIX:-Rest}"
-MGTR_INPUT_TAG="${MGTR_INPUT_TAG:-${PIPELINE_DENOISE_OUTPUT_TAG:-OCME+MEICA}}"
+MGTR_INPUT_TAG="${MGTR_INPUT_TAG:-OCME+MEICA}"
 MGTR_OUTPUT_TAG="${MGTR_OUTPUT_TAG:-${MGTR_INPUT_TAG}+MGTR}"
 
 # python runtime override (default: PIPELINE_PYTHON, else python3 on PATH)

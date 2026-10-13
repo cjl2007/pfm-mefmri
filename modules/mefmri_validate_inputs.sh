@@ -12,6 +12,21 @@ FuncFilePrefix="${3:-${FUNC_FILE_PREFIX:-Rest}}"
 StartSession="${4:-${START_SESSION:-1}}"
 VALIDATE_ECHO_DIM4_POLICY="${VALIDATE_ECHO_DIM4_POLICY:-error}"
 FUNC_NOFIELDMAP_MODE="${FUNC_NOFIELDMAP_MODE:-0}"
+DISTORTION_CORRECTION_MODE="${DISTORTION_CORRECTION_MODE:-topup}"
+MEPCA="${MEPCA:-kundu}"
+
+# A numeric tedana PCA setting is a requested component count. Only enforce
+# that setting when tedana/ME-ICA is the effective denoising method. When this
+# module is run directly, assume that a supplied MEPCA value is intended for
+# tedana.
+TEDANA_PCA_CHECK_ENABLED=1
+if [[ -n "${PIPELINE_EFFECTIVE_DENOISE_METHOD:-}" && "${PIPELINE_EFFECTIVE_DENOISE_METHOD}" != "meica" ]]; then
+  TEDANA_PCA_CHECK_ENABLED=0
+fi
+TEDANA_PCA_NCOMPS=""
+if [[ "$TEDANA_PCA_CHECK_ENABLED" == "1" && "$MEPCA" =~ ^[0-9]+$ ]]; then
+  TEDANA_PCA_NCOMPS="$((10#$MEPCA))"
+fi
 
 [[ -d "$SubjectDir" ]] || { echo "ERROR: missing subject directory: $SubjectDir" >&2; exit 2; }
 [[ "$StartSession" =~ ^[0-9]+$ ]] || { echo "ERROR: StartSession must be integer, got: $StartSession" >&2; exit 2; }
@@ -89,16 +104,21 @@ validate_run_payload() {
   local run_dir="$1"
   local expected_prefix="$2"
   local -a nii_files=() json_files=()
-  local nf jf echo_tag
+  local nf jf echo_tag nvol
   local -a echo_sizes=() echo_names=() echo_vols=()
+  local fslnvols_available=0
 
-  mapfile -t nii_files < <(find -L "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.nii.gz" | sort -V)
+  if command -v fslnvols >/dev/null 2>&1; then
+    fslnvols_available=1
+  fi
+
+  mapfile -t nii_files < <(find -L "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.nii.gz" | sed -E '/_phase\.nii\.gz$/d' | sort -V)
   if [[ "${#nii_files[@]}" -eq 0 ]]; then
     err "No echo NIfTI files found in $run_dir (expected ${expected_prefix}*.nii.gz)"
     return
   fi
 
-  mapfile -t json_files < <(find -L "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.json" | sort -V)
+  mapfile -t json_files < <(find -L "$run_dir" -maxdepth 1 -type f -name "${FuncFilePrefix}_S*_R*_E*.json" | sed -E '/_phase\.json$/d' | sort -V)
   if [[ "${#json_files[@]}" -eq 0 ]]; then
     err "No echo JSON sidecars found in $run_dir (expected ${expected_prefix}*.json)"
   fi
@@ -107,7 +127,6 @@ validate_run_payload() {
     jf="${nf%.nii.gz}.json"
     if [[ ! -f "$jf" ]]; then
       err "Missing JSON sidecar for NIfTI: $nf"
-      continue
     fi
     if [[ "$(basename "$nf")" != ${expected_prefix}* ]]; then
       err "Unexpected file naming in $run_dir: $(basename "$nf") (expected prefix ${expected_prefix})"
@@ -118,8 +137,12 @@ validate_run_payload() {
     fi
     echo_sizes+=("$(stat -Lc%s "$nf")")
     echo_names+=("$(basename "$nf")")
-    if command -v fslnvols >/dev/null 2>&1; then
-      echo_vols+=("$(fslnvols "$nf")")
+    if [[ "$fslnvols_available" == "1" ]]; then
+      nvol=""
+      if ! nvol="$(fslnvols "$nf" 2>/dev/null)"; then
+        nvol=""
+      fi
+      echo_vols+=("$nvol")
     else
       echo_vols+=("")
     fi
@@ -138,28 +161,46 @@ validate_run_payload() {
     done
   fi
 
-  if [[ "${#echo_vols[@]}" -gt 1 ]]; then
-    if [[ -z "${echo_vols[0]}" ]]; then
-      warn "Echo dim4 check skipped in $run_dir because fslnvols is unavailable on PATH."
+  if [[ "${#echo_vols[@]}" -gt 0 ]]; then
+    if [[ "$fslnvols_available" != "1" ]]; then
+      warn "Echo dim4 and tedana PCA/TR checks skipped in $run_dir because fslnvols is unavailable on PATH."
     else
-      local min_vol="${echo_vols[0]}"
-      local max_vol="${echo_vols[0]}"
-      local dim4_mismatch=0
-      local i
-      for i in "${!echo_vols[@]}"; do
-        local v="${echo_vols[i]}"
-        if [[ -z "$v" || ! "$v" =~ ^[0-9]+$ ]]; then
-          warn "Echo dim4 check skipped in $run_dir due to non-numeric fslnvols output for ${echo_names[i]}: '$v'"
-          dim4_mismatch=0
-          break
-        fi
-        (( v < min_vol )) && min_vol="$v"
-        (( v > max_vol )) && max_vol="$v"
-      done
-      if (( max_vol != min_vol )); then
-        dim4_mismatch=1
+      local min_vol=""
+      local max_vol=""
+      local all_vols_numeric=1
+      local required_trs=""
+      local max_supported_components=""
+      local i v
+
+      if [[ -n "$TEDANA_PCA_NCOMPS" && "$TEDANA_PCA_NCOMPS" -gt 0 ]]; then
+        # ceil(1.5 * n_components), calculated with integer arithmetic.
+        required_trs="$(( (3 * TEDANA_PCA_NCOMPS + 1) / 2 ))"
       fi
-      if (( dim4_mismatch == 1 )); then
+
+      # Check every echo independently. A truncated final echo is common, but
+      # any echo can be the offending series.
+      for i in "${!echo_vols[@]}"; do
+        v="${echo_vols[i]}"
+        if [[ -z "$v" || ! "$v" =~ ^[0-9]+$ ]]; then
+          warn "Could not determine dim4/TR count for ${echo_names[i]} in $run_dir (fslnvols output: '$v')."
+          all_vols_numeric=0
+          continue
+        fi
+
+        if [[ -z "$min_vol" || "$v" -lt "$min_vol" ]]; then
+          min_vol="$v"
+        fi
+        if [[ -z "$max_vol" || "$v" -gt "$max_vol" ]]; then
+          max_vol="$v"
+        fi
+
+        if [[ -n "$required_trs" && "$v" -lt "$required_trs" ]]; then
+          max_supported_components="$(( (2 * v) / 3 ))"
+          err "Tedana PCA/TR requirement failed for ${echo_names[i]} in $run_dir: found $v TRs, but numeric MEPCA=$TEDANA_PCA_NCOMPS requires at least $required_trs TRs (TRs must be at least 150% of the requested components). Use MEPCA<=$max_supported_components for this echo, choose a named tedana PCA method, or provide a longer functional series."
+        fi
+      done
+
+      if [[ "$all_vols_numeric" == "1" && "${#echo_vols[@]}" -gt 1 && "$max_vol" -ne "$min_vol" ]]; then
         local details=""
         for i in "${!echo_vols[@]}"; do
           details+="${echo_names[i]}=${echo_vols[i]} "
@@ -174,7 +215,7 @@ validate_run_payload() {
     fi
   fi
 
-  "${VALIDATE_PYTHON:-${PIPELINE_PYTHON:-python3}}" - "$run_dir" "$FuncFilePrefix" <<'PY'
+  "${VALIDATE_PYTHON:-${PIPELINE_PYTHON:-python3}}" - "$run_dir" "$FuncFilePrefix" "$FUNC_NOFIELDMAP_MODE" <<'PY'
 import json
 import re
 import sys
@@ -182,14 +223,15 @@ from pathlib import Path
 
 run_dir = Path(sys.argv[1])
 prefix = sys.argv[2]
+no_fieldmap_mode = sys.argv[3] == "1"
 pattern = re.compile(rf"^{re.escape(prefix)}_S\d+_R\d+_E\d+\.json$")
 required = [
     "EchoTime",
     "RepetitionTime",
-    "EffectiveEchoSpacing",
     "SliceTiming",
-    "PhaseEncodingDirection",
 ]
+if not no_fieldmap_mode:
+    required.extend(["EffectiveEchoSpacing", "PhaseEncodingDirection"])
 errors = []
 
 def parse_echo_idx(name: str):
@@ -197,7 +239,8 @@ def parse_echo_idx(name: str):
     return int(m.group(1)) if m else None
 
 json_files = sorted([p for p in run_dir.glob(f"{prefix}_S*_R*_E*.json") if pattern.match(p.name)])
-nii_files = sorted([p for p in run_dir.glob(f"{prefix}_S*_R*_E*.nii.gz")])
+nii_pattern = re.compile(rf"^{re.escape(prefix)}_S\d+_R\d+_E\d+\.nii\.gz$")
+nii_files = sorted([p for p in run_dir.glob(f"{prefix}_S*_R*_E*.nii.gz") if nii_pattern.match(p.name)])
 
 nii_echoes = sorted([e for e in (parse_echo_idx(p.name) for p in nii_files) if e is not None])
 json_echoes = sorted([e for e in (parse_echo_idx(p.name) for p in json_files) if e is not None])
@@ -246,12 +289,17 @@ check_fieldmaps() {
   local -a ap_files=() pa_files=()
   local ap pa expected_json
 
-  if [[ "$FUNC_NOFIELDMAP_MODE" == "1" ]]; then
+  if [[ "$FUNC_NOFIELDMAP_MODE" == "1" || "$DISTORTION_CORRECTION_MODE" == "none" ]]; then
     if [[ -d "$FM_UNPROC" ]]; then
       warn "FUNC_NOFIELDMAP_MODE=1: fieldmap directory will be ignored: $FM_UNPROC"
     else
       warn "FUNC_NOFIELDMAP_MODE=1: skipping fieldmap presence checks."
     fi
+    return
+  fi
+
+  if [[ "$DISTORTION_CORRECTION_MODE" == "medic" ]]; then
+    warn "DISTORTION_CORRECTION_MODE=medic: skipping AP/PA fieldmap checks; MEDIC phase-companion checks are handled by the pipeline runner."
     return
   fi
 
@@ -279,7 +327,17 @@ echo "[validate] SubjectDir: $SubjectDir"
 echo "[validate] Functional naming: func/$FuncDirName, prefix ${FuncFilePrefix}_*"
 echo "[validate] StartSession: $StartSession"
 echo "[validate] Echo dim4 policy: $VALIDATE_ECHO_DIM4_POLICY"
+echo "[validate] Distortion correction mode: $DISTORTION_CORRECTION_MODE"
 echo "[validate] FUNC_NOFIELDMAP_MODE: $FUNC_NOFIELDMAP_MODE"
+if [[ "$TEDANA_PCA_CHECK_ENABLED" == "1" ]]; then
+  echo "[validate] Tedana PCA method: $MEPCA"
+else
+  echo "[validate] Tedana PCA/TR check: not applicable (effective denoising method: ${PIPELINE_EFFECTIVE_DENOISE_METHOD})"
+fi
+
+if [[ -n "$TEDANA_PCA_NCOMPS" && "$TEDANA_PCA_NCOMPS" -lt 1 ]]; then
+  err "Numeric MEPCA must request at least one component, got: $MEPCA"
+fi
 
 check_anat
 check_func

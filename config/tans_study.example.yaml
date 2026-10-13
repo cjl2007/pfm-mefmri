@@ -1,0 +1,110 @@
+# Copy to a study-owned location and replace every /path/to and REPLACE_WITH value.
+# Full guidance: pfm-tans/docs/CONFIGURATION.md and docs/tans-integration.md here.
+# Hardware and calibration must be selected for your study before enabling TANS.
+# Select treatment with --target-network / TANS_TARGET_NETWORK, not a new YAML target.
+schema_version: 1
+subject: "{subject}"
+
+inputs:
+  categorical_networks: "{pfm_dir}/RidgePFM_VTX.dlabel.nii"
+  network_probabilities: "{pfm_dir}/RidgePFM_VTX_ProbMaps.dtseries.nii"
+  network_metadata: "{pfm_tans_root}/res0urces/Priors.mat"
+  vertex_area: "{subject_dir}/anat/T1w/fsaverage_LR32k/{subject}.midthickness_va.32k_fs_LR.dscalar.nii"
+
+# Both supplied: unchanged. WTA-only: 0/1 stand-in weights. Weighted-only:
+# set a percentile explicitly; set the unavailable input path to null.
+input_fallbacks:
+  enabled: true
+  weighted_to_binary_percentile: null  # e.g. 90 = top 10% (including ties)
+  weight_polarity: positive           # positive | negative | absolute
+  weight_normalization: auto          # preserve [0,1]; otherwise divide by map max
+  map_names: null                     # optional names in weighted-only row order
+
+subject_adapter:
+  mode: native_t1w_t2w_charm
+  subject_dir: "{subject_dir}"
+  native_t1w: "{subject_dir}/anat/T1w/T1w.nii.gz"
+  native_t2w: "{subject_dir}/anat/T2w/T2w.nii.gz"
+  charm_binary: /path/to/SimNIBS/simnibs_env/bin/charm
+  workbench: /path/to/workbench/bin_linux64/wb_command
+
+components:
+  quantiles: [0.10, 0.25, 0.50, 0.75, 0.90]
+  report_weight_thresholds: [0.25, 0.50, 0.75]
+
+search:
+  # Treatment objective. The SM-Hand objective is specified independently below.
+  map_mode: weighted
+  policy: "{pfm_tans_root}/search/default_search_policy.json"
+  coverage_fraction: 0.85
+  orientation_start_degrees: 0
+  orientation_stop_degrees: 180
+  orientation_step_degrees: 15
+
+simulation:
+  simnibs_python: /path/to/SimNIBS/simnibs_env/bin/python
+  sm_hand_calibration_coil: /path/to/calibration_coil.ccd
+  treatment_coil: /path/to/treatment_coil.ccd
+  coil: /path/to/treatment_coil.ccd
+  coil_distance_mm: 1
+  didt_aperus: 1000000  # Historical key: SimNIBS value is A/s, i.e. 1 A/us reference.
+  hotspot_percentiles: [99.9, 99.8, 99.7, 99.6, 99.5, 99.4, 99.3, 99.2, 99.1, 99.0]
+
+dosing:
+  registry: "{pfm_tans_root}/res0urces/StimulatorCalibration/calibration_registry.json"
+  sm_hand_calibration: REPLACE_WITH_MATCHED_SM_HAND_CALIBRATION_ID
+  # Replace for the actual coil/stimulator/waveform/direction used in your study.
+  treatment_calibration: REPLACE_WITH_MATCHED_TREATMENT_CALIBRATION_ID
+  allow_similar_coil_calibration: false
+  substitution_justification: ""
+  # Configured upward ceiling for treatment console output relative to the measured
+  # SM-Hand rMT console output. A value of 1.20 means treatment %MSO may never
+  # exceed 120% of the measured rMT %MSO. Set to null to disable; this is an
+  # upward-only modeling safeguard, not proof of safety or a dosing protocol.
+  maximum_treatment_rmt_ratio: 1.20
+
+fine_search:
+  radius_mm: 10
+  spacing_mm: 4
+  relative_orientations_degrees: [-10, -5, 0, 5, 10]
+
+robustness:
+  # false: nominal fine-search winner; no placement-error simulations/sensitivity.
+  enabled: true  # Module runs: also set TANS_ROBUSTNESS_ENABLE=1.
+  nominal_relative_floor: 0.98
+  maximum_finalists: 3
+  minimum_finalist_separation_mm: 4.0
+  position_error_radii_mm: [3.0, 5.0, 10.0]
+  azimuth_samples_per_radius: 8
+  orientation_error_degrees: [0.0, 5.0, 10.0]
+  default_position_error_mm: 5.0
+  default_orientation_error_degrees: 5.0
+  selection_metric: lower_tail_mean_10_percent
+
+# This changes only the physical prescription/export, not the magnitude-based
+# search winner. The explicit equivalence assertion is required for auto-flip.
+prescription:
+  handle_orientation:
+    mode: as_simulated
+    coil_180_degree_magnitude_equivalent: false
+    physical_handle_local_axis: negative_y
+    posterior_weight: 1.0
+    inferior_weight: 1.0
+
+retention:
+  profile: standard  # research retains raw per-center FEM work directories.
+
+targets:
+  - network: Somatomotor_Hand
+    display_name: SM-Hand
+    map_mode: weighted
+    anatomical_zone_display: left precentral gyrus
+    anatomical_mask:
+      type: gifti_labels
+      name: L_G_precentral
+      hemisphere: L
+      file: "{subject_dir}/anat/MNINonLinear/fsaverage_LR32k/{subject}.L.aparc.a2009s.32k_fs_LR.label.gii"
+      labels: [L_G_precentral]
+    scoring:
+      constrain_target_to_anatomical_mask: true
+      restrict_weights_to_binary_support: true

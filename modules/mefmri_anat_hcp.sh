@@ -60,6 +60,9 @@ check_msm_regoption_support() {
     return 2
   fi
 
+  # Detect the specific failure seen on external installs: msm doesn't recognize --regoption.
+  # We intentionally don't treat a non-zero exit as failure (msm needs many required args);
+  # we only fail-fast when the output indicates --regoption itself is unsupported.
   local probe_out
   probe_out="$("${msm_cmd}" --regoption=3 2>&1 || true)"
   if echo "${probe_out}" | grep -Eqi "(unrecognized|unknown|illegal)[^\\n]*regoption|regoption[^\\n]*(unrecognized|unknown|illegal)|does not support[^\\n]*regoption"; then

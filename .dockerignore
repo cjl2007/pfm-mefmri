@@ -1,0 +1,17 @@
+.git
+.gitignore
+codex_progress
+__pycache__
+*.pyc
+release/
+.agents/
+.codex
+.Rhistory
+fs_license.txt
+**/license.txt
+config/*BioSelect*
+config/*BD2*
+config/*MC01*
+experiments/
+future_enhancements/
+lib/nordic/

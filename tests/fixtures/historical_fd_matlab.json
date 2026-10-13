@@ -1,0 +1,13 @@
+{
+  "source": "MultiEchofMRI-Pipeline/res0urces/concatenate_scans.m:calc_fd",
+  "source_sha256": "f9d22addd88b0304c18af72bb6cefe9abe4ac09210eac1f5f8b7c6ab55277260",
+  "reference_runtime": "MATLAB R2019a Signal Processing Toolbox",
+  "generated_on": "2026-10-03",
+  "arrays": {
+    "trs": "TR in seconds for each case",
+    "motions": "case x frame x 6 (rotations in radians, translations in mm)",
+    "fd": "case x frame; unmodified MATLAB calc_fd results"
+  },
+  "input_description": "240 frames mixing 0.06, 0.3, and 0.48 Hz motion with two displacement steps; identical input arrays supplied to MATLAB and Python.",
+  "comparison": "Stable Python SOS FD agrees with historical direct-form FD within 2e-5 mm and gives identical FD < 0.3 masks for these cases. A TR=1.99 experiment exposed numerical instability in the historical direct-form polynomial and is intentionally not an equivalence fixture."
+}
