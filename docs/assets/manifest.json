@@ -64,19 +64,19 @@
       "sha256": "9d5b45cdf7e82ec52b702e0a0b0441ccddac09c9c2d4a64a40e9940a06ace1c8"
     },
     {
-      "file": "qc-motion-grayplots.png",
+      "file": "qc-motion-grayplots-me01.png",
       "kind": "production ME01 QC re-render",
       "description": "ME01 session 1/run 1 with scanner-aligned respiration and pulse, 1200 sampled grayordinates, and FD 0.3 mm. Saved stage data; no denoising rerun.",
       "sha256": "cd10816cb9f7212352e5e23b50c2be83b5eb69a25d990928216a4bca1d5c00eb"
     },
     {
-      "file": "qc-seed-fc.mp4",
+      "file": "qc-seed-fc-me01.mp4",
       "kind": "ME01 production-scene rendering",
       "description": "Full 70.2-second ME01 seed-FC review movie using subject-specific surfaces and the concatenated 1.7 mm-smoothed input.",
       "sha256": "74d44612ab10637bad1f0445ff7faee50f62c367b41e5d7f4961c1cf25a33965"
     },
     {
-      "file": "qc-seed-fc.png",
+      "file": "qc-seed-fc-me01.png",
       "kind": "decoded movie frame",
       "description": "ME01 movie frame decoded at 12 seconds.",
       "sha256": "246f8d8d49c7aa60f9004395a8947f4ddecd5df51612994e2af86cc8c0d0f33e"
@@ -88,13 +88,13 @@
       "sha256": "490e6161ba98d5544c6cb9f2411c1b6f34e1c860b937ad357c4b94a3f55eeb70"
     },
     {
-      "file": "qc-coreg-over-time.gif",
+      "file": "qc-coreg-over-time-me01.gif",
       "kind": "ME01 animation assembled from saved coregistration volumes",
       "description": "ME01 T1w anchor and all 44 corrected SBRefs in chronological scan order, with a shared anatomical boundary and scan-only counter. No registration rerun.",
       "sha256": "7286ddbc64cecb411acefa1f20addb0b6b4c09875f2e991ff7e434dda71aeab7"
     },
     {
-      "file": "qc-seed-fc.gif",
+      "file": "qc-seed-fc-me01.gif",
       "kind": "animated preview sampled from saved movie",
       "description": "ME01: a three-second seed callout followed by one frame per source second from the full 70.2-second movie, displayed at four frames per second at 960 x 540.",
       "sha256": "f6617f67806a8e169e87a7188de24cea83b0ffff63f9bd3b6301bb019c04fb69"

@@ -12,7 +12,7 @@ clinical performance.
 
 ## Alignment and fieldmap/SDC review
 
-![ME01 anatomical anchor and functional-reference alignment across 44 longitudinal scans](assets/qc-coreg-over-time.gif)
+![ME01 anatomical anchor and functional-reference alignment across 44 longitudinal scans](assets/qc-coreg-over-time-me01.gif)
 
 The animation cycles through the ME01 T1w anchor and all 44 saved corrected SBRef
 volumes in chronological scan order. Each panel uses the same anatomical
@@ -37,7 +37,7 @@ an intervention effect.
 
 ## Signal quality and network signal
 
-![ME01 motion, respiratory and pulse traces, FD, DVARS, and grayplots through denoising and MGTR](assets/qc-motion-grayplots.png)
+![ME01 motion, respiratory and pulse traces, FD, DVARS, and grayplots through denoising and MGTR](assets/qc-motion-grayplots-me01.png)
 
 The motion figure shows **ME01 session 1, run 1**. It uses saved processing-stage
 CIFTIs, the production QC plotting code, and 1,200 sampled grayordinates. The
@@ -63,13 +63,13 @@ help reveal heterogeneous quality that a whole-brain average can hide.
 
 ## Seed-FC review
 
-![Animated preview of the ME01 crawling cortical seed-FC movie](assets/qc-seed-fc.gif)
+![Animated preview of the ME01 crawling cortical seed-FC movie](assets/qc-seed-fc-me01.gif)
 
-[Full ME01 seed-FC movie](assets/qc-seed-fc.mp4). The looping GIF samples one
+[Full ME01 seed-FC movie](assets/qc-seed-fc-me01.mp4). The looping GIF samples one
 frame per second from the 70.2-second movie and plays at four frames per second,
 covering the full sweep after a three-second opening callout identifies the
 small white seed. The MP4 retains all frames and has no added callout. The
-[still image](assets/qc-seed-fc.png) is decoded at 12 seconds. The
+[still image](assets/qc-seed-fc-me01.png) is decoded at 12 seconds. The
 movie uses ME01 subject-specific surfaces and the concatenated, 1.7 mm-smoothed
 resting-state input used for the RidgePFM example.
 The movie and scene are written to `QC/CrawlingSeedFC/` when enabled.

@@ -59,10 +59,10 @@ physiology, motion, and denoising in one review path.
 across cortex. The ME01 example follows a seed continuously across the left
 hemisphere and shows its whole-brain FC pattern on subject-specific surfaces.
 
-[![Animated crawling-seed functional connectivity showing how the connectivity pattern changes as the seed moves across cortex](docs/assets/qc-seed-fc.gif)](docs/assets/qc-seed-fc.mp4)
+[![Animated crawling-seed functional connectivity showing how the connectivity pattern changes as the seed moves across cortex](docs/assets/qc-seed-fc-me01.gif)](docs/assets/qc-seed-fc-me01.mp4)
 
 *ME01: as the seed moves across cortex, its functional-connectivity map updates.
-[Watch the full movie](docs/assets/qc-seed-fc.mp4); the looping preview samples
+[Watch the full movie](docs/assets/qc-seed-fc-me01.mp4); the looping preview samples
 frames from the full cortical sweep.*
 
 **Network Similarity Index (NSI)** quantifies how clearly an individual's
@@ -73,13 +73,13 @@ functional connectivity expresses large-scale network structure
 
 *NSI-based estimate of PFM usability.*
 
-![ME01 coregistration review cycling from the anatomical anchor through 44 longitudinal functional references](docs/assets/qc-coreg-over-time.gif)
+![ME01 coregistration review cycling from the anatomical anchor through 44 longitudinal functional references](docs/assets/qc-coreg-over-time-me01.gif)
 
 *ME01 coregistration over time: the corrected SBRef from each of 44 scans is
 shown against the same anatomical boundary, making drift or isolated failures
 over time easy to see.*
 
-![ME01 motion, respiration, pulse, framewise displacement, DVARS, and grayplots through echo combination, MEICA, and MGTR](docs/assets/qc-motion-grayplots.png)
+![ME01 motion, respiration, pulse, framewise displacement, DVARS, and grayplots through echo combination, MEICA, and MGTR](docs/assets/qc-motion-grayplots-me01.png)
 
 *ME01 run-level review aligns respiratory and pulse traces with motion, FD,
 DVARS, and signal changes through each denoising stage.*
