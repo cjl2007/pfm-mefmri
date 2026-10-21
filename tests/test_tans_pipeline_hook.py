@@ -80,6 +80,13 @@ class TansPipelineHookTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
         self.assertEqual(self.events.read_text().splitlines(), ['tans'])
 
+    def test_missing_t2w_uses_t1w_only_fallback(self):
+        (self.subject/'anat/T2w/T2w.nii.gz').unlink()
+        result = self.run_pipeline(START_FROM_MODULE='tans')
+        self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
+        self.assertEqual(self.events.read_text().splitlines(), ['tans'])
+        self.assertIn('T1w-only CHARM head model', result.stderr)
+
     def test_disabled_tans_does_not_invoke_driver(self):
         result = self.run_pipeline(TANS_ENABLE='0', STOP_AFTER_MODULE='')
         self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)

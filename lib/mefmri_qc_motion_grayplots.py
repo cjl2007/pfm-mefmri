@@ -128,6 +128,68 @@ def load_motion(run_dir: Path) -> np.ndarray | None:
     return None
 
 
+def _numeric_physio_rows(path: Path) -> np.ndarray:
+    rows: list[tuple[float, float]] = []
+    for line in path.read_text(errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        try:
+            rows.append((float(fields[0]), float(fields[-1])))
+        except ValueError:
+            continue
+    return np.asarray(rows, dtype=np.float64)
+
+
+def _acquisition_interval(path: Path) -> tuple[float, float] | None:
+    starts: list[float] = []
+    finishes: list[float] = []
+    for line in path.read_text(errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        try:
+            starts.append(float(fields[2]))
+            finishes.append(float(fields[3]))
+        except ValueError:
+            continue
+    return (min(starts), max(finishes)) if starts else None
+
+
+def load_physio(subject_dir: Path, func_name: str, run: RunInfo, n_frames: int) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Load Siemens RESP/PULS logs and align them to acquisition ticks."""
+    folder = subject_dir / "physio" / "unprocessed" / func_name / f"session_{run.session}" / f"run_{run.run}"
+    info = sorted(folder.glob("*_Info.log"))
+    if not info or n_frames < 2:
+        return {}
+    interval = _acquisition_interval(info[0])
+    if interval is None or interval[1] <= interval[0]:
+        return {}
+    start, finish = interval
+    output: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for suffix, label in (("RESP", "respiration"), ("PULS", "pulse")):
+        matches = sorted(folder.glob(f"*_{suffix}.log"))
+        if not matches:
+            continue
+        rows = _numeric_physio_rows(matches[0])
+        if rows.size == 0:
+            continue
+        keep = (rows[:, 0] >= start) & (rows[:, 0] <= finish) & np.isfinite(rows).all(axis=1)
+        rows = rows[keep]
+        if len(rows) < 3:
+            continue
+        # Robustly suppress isolated logger spikes, then retain enough samples
+        # to show cardiac and respiratory waveforms without bloating figures.
+        values = rows[:, 1]
+        med = np.median(values); mad = np.median(np.abs(values - med))
+        if mad > 0:
+            values = np.clip(values, med - 12 * mad, med + 12 * mad)
+        x = (rows[:, 0] - start) / (finish - start) * (n_frames - 1)
+        stride = max(1, int(np.ceil(len(x) / max(4000, n_frames * 8))))
+        output[label] = (x[::stride], zscore_vector(values[::stride]))
+    return output
+
+
 def zscore_columns(data: np.ndarray) -> np.ndarray:
     data = np.asarray(data, dtype=np.float32)
     mu = np.nanmean(data, axis=0, keepdims=True)
@@ -303,12 +365,15 @@ def plot_motion_grayplot_panel(
     fd_filtered: np.ndarray | None,
     motion: np.ndarray | None,
     dvars_by_stage: dict[str, np.ndarray],
+    physio: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
     fd_threshold: float = 0.3,
     boundaries: list[int] | None = None,
 ) -> None:
     deltas = [(a, b) for a, b in zip(stages[:-1], stages[1:]) if a in stage_z and b in stage_z]
-    n_rows = 3 + len(stages) + len(deltas)
-    heights = [1.0, 0.5, 0.7] + [2.2 for _ in stages] + [1.6 for _ in deltas]
+    physio = physio or {}
+    physio_names = [name for name in ("respiration", "pulse") if name in physio]
+    n_rows = 3 + len(physio_names) + len(stages) + len(deltas)
+    heights = [1.0] + [0.55 for _ in physio_names] + [0.5, 0.7] + [2.2 for _ in stages] + [1.6 for _ in deltas]
     n_frames = int(next(iter(stage_z.values())).shape[0])
     width_in = min(GRAYPLOT_MAX_WIDTH_IN, max(GRAYPLOT_BASE_WIDTH_IN, n_frames / GRAYPLOT_FRAMES_PER_INCH))
     fig, axes = plt.subplots(
@@ -358,7 +423,14 @@ def plot_motion_grayplot_panel(
     )
     ax.grid(True, axis="y", alpha=0.2)
 
-    ax = axes[1]
+    row = 1
+    for name in physio_names:
+        ax = axes[row]; px, py = physio[name]
+        ax.plot(px, py, color="#2563eb" if name == "respiration" else "#7c3aed", lw=0.65)
+        ax.set_ylabel("RESP" if name == "respiration" else "PULS")
+        ax.set_yticks([]); ax.grid(True, axis="y", alpha=0.15); row += 1
+
+    ax = axes[row]
     if fd_filtered is not None:
         ax.plot(x[: len(fd_filtered)], fd_filtered, color="#8b0000", lw=0.95)
         ax.axhline(fd_threshold, color="#8b0000", lw=0.7, ls="--", alpha=0.85)
@@ -378,7 +450,8 @@ def plot_motion_grayplot_panel(
     ax.set_ylabel("FD")
     ax.grid(True, axis="y", alpha=0.2)
 
-    ax = axes[2]
+    row += 1
+    ax = axes[row]
     dvars_items = []
     for idx, stage in enumerate(stages):
         dv = dvars_by_stage.get(stage)
@@ -411,7 +484,7 @@ def plot_motion_grayplot_panel(
     stage_images = []
     delta_images = []
 
-    row = 3
+    row += 1
     for stage in stages:
         ax = axes[row]
         mat = np.clip(stage_z[stage].T, -2.5, 2.5)
@@ -442,11 +515,12 @@ def plot_motion_grayplot_panel(
         row += 1
 
     if stage_images:
-        cbar = fig.colorbar(stage_images[0], ax=list(axes[3 : 3 + len(stages)]), location="right", pad=0.006, fraction=0.016)
+        first_stage_row = 3 + len(physio_names)
+        cbar = fig.colorbar(stage_images[0], ax=list(axes[first_stage_row : first_stage_row + len(stages)]), location="right", pad=0.006, fraction=0.016)
         cbar.set_label("z", fontsize=8)
         cbar.ax.tick_params(labelsize=7)
     if delta_images:
-        cbar = fig.colorbar(delta_images[0], ax=list(axes[3 + len(stages) :]), location="right", pad=0.006, fraction=0.016)
+        cbar = fig.colorbar(delta_images[0], ax=list(axes[3 + len(physio_names) + len(stages) :]), location="right", pad=0.006, fraction=0.016)
         cbar.set_label("delta z", fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
@@ -677,6 +751,7 @@ def generate_report(
     concat_fd_raw: list[np.ndarray] = []
     concat_fd: list[np.ndarray] = []
     concat_motion: list[np.ndarray] = []
+    concat_physio: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {"respiration": [], "pulse": []}
     boundaries: list[int] = []
     run_fd_mean: list[float] = []
 
@@ -741,6 +816,8 @@ def generate_report(
             )
 
         common_stages = [tag for tag in all_stage_tags if tag in stage_z]
+        n_tp = next(iter(stage_z.values())).shape[0]
+        physio = load_physio(subject_dir, func_name, run, n_tp)
         run_png = reportlets / f"subj_desc-motionGrayplot_{run.tag}.png"
         plot_motion_grayplot_panel(
             run_png,
@@ -751,6 +828,7 @@ def generate_report(
             fd,
             motion,
             dvars_by_stage,
+            physio=physio,
             fd_threshold=fd_threshold,
         )
         run_cards.append(
@@ -763,7 +841,10 @@ def generate_report(
         )
         run_links.append(f"<a href='reportlets/{html.escape(run_png.name)}'>{html.escape(run.label)}</a>")
 
-        n_tp = next(iter(stage_z.values())).shape[0]
+        for name in concat_physio:
+            if name in physio:
+                px, py = physio[name]
+                concat_physio[name].append((px + cursor, py))
         for tag in all_stage_tags:
             if tag in stage_z:
                 concat_stage_blocks[tag].append(stage_z[tag])
@@ -791,6 +872,10 @@ def generate_report(
     concat_fd_raw_vec = np.concatenate(concat_fd_raw) if concat_fd_raw else None
     concat_fd_vec = np.concatenate(concat_fd) if concat_fd else None
     concat_motion_arr = np.vstack(concat_motion) if concat_motion else None
+    concat_physio_data = {
+        name: (np.concatenate([item[0] for item in blocks]), np.concatenate([item[1] for item in blocks]))
+        for name, blocks in concat_physio.items() if blocks
+    }
     subject_png = reportlets / "subj_desc-motionGrayplots_stacked.png"
     if concat_stage_z:
         plot_motion_grayplot_panel(
@@ -802,6 +887,7 @@ def generate_report(
             concat_fd_vec,
             concat_motion_arr,
             concat_dvars_z,
+            physio=concat_physio_data,
             fd_threshold=fd_threshold,
             boundaries=boundaries[:-1],
         )

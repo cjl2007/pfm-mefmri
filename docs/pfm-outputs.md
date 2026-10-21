@@ -48,6 +48,98 @@ Each strategy writes to its own subfolder under `PFM/`.
 
 ## RidgePFM
 
+### Taxonomies, confidence, stripes, and volume maps
+
+```bash
+PFM_RF_TAXONOMY="Lynch2024"  # Lynch2024 | Du2024 | Hermosillo2024 | Kong2019
+PFM_PRIORS_MAT=""            # empty: use the selected bundled taxonomy
+PFM_SUBCORT_PRIORS_NII=""
+PFM_RF_CONFIDENCE_ENABLE=1   # optional; default 0
+PFM_RF_CONFIDENCE_SCAN_IDX="" # auto-select aligned concatenation metadata
+PFM_RF_CONFIDENCE_FC_THRESHOLD=0.7
+PFM_RF_VOLUME_ENABLE=1       # optional; default 0
+PFM_RF_VOLUME_ANATOMICAL_TARGET="acpc" # acpc | native | custom
+PFM_RF_VOLUME_REFERENCE=""  # target grid; native defaults to anat/T1w/T1w.nii.gz
+PFM_RF_VOLUME_ACPC_TO_TARGET_XFM="" # native auto-selects xfms/acpc2orig.mat
+```
+
+Ribbon mapping always occurs in the subject's ACPC anatomical space, where the
+white and pial surfaces are defined. The `native` target then applies the saved
+ACPC-to-original transform and writes on the original `T1w.nii.gz` grid. A
+`custom` target requires both `PFM_RF_VOLUME_REFERENCE` and
+`PFM_RF_VOLUME_ACPC_TO_TARGET_XFM`. WTA output is a Workbench label volume with
+the taxonomy names and colors embedded; score and confidence outputs remain
+scalar 4D NIfTI files.
+
+The four prior sets live in `res0urces/PriorsPFM/<taxonomy>`. Lynch2024 and
+Hermosillo2024 supply cortical and subcortical spatial priors; Du2024 and Kong2019
+supply cortical priors only. Targets without spatial support use FC alone:
+no other taxonomy's subcortical labels are substituted. The availability map
+identifies informative spatial-prior rows. Custom cortical priors override the
+taxonomy selection. To add subcortical spatial support with custom priors, supply
+an explicitly matching custom volume prior; otherwise volume assignments use FC.
+Use a different `PFM_OUTDIR` for each taxonomy when retaining multiple analyses.
+
+Confidence testing maps each eligible session independently, combining its runs.
+Ten eligible sessions produce ten assignment maps. `ScanIdx.mat` must contain
+one `[session, run]` row per input frame. New concatenation writes both the full
+`ScanIdx.mat` and frame-aligned `ScanIdx_Censored.mat`; a legacy or custom CIFTI
+must be supplied with matching metadata. Sessions with fewer than
+`PFM_RF_REPEAT_MIN_FRAMES` (30) frames are excluded and recorded. At least four
+eligible sessions are required by the combined confidence/state workflow.
+
+The `Confidence/` directory contains:
+
+| Output suffix | Meaning |
+| --- | --- |
+| `_SessionAssignmentFrequency.dscalar.nii` | Per-network fraction of valid session assignments, 0–1 |
+| `_SessionAssignments.dlabel.nii` | Each session's WTA map |
+| `_FCReproducibility.dscalar.nii` | FC-profile correlation for each of three pooled session splits |
+| `_SplitAssignments.dlabel.nii` | The six pooled split assignments |
+| `_MinimumValidSplitSessions.dscalar.nii` | Minimum number of valid sessions across split sides |
+| `_AssignmentStates.dlabel.nii` | Four FC reproducibility × label stability states; zero is not estimable |
+| `_SplitLabelMembership.dscalar.nii` | Every network observed across the six split maps |
+| `_NetworkStripes.dlabel.nii` | Separate display map; stripes only for reproducible FC with competing labels |
+
+The default split plan uses three seeded, disjoint-within-pair session halves.
+The standalone confidence CLI also accepts an explicit `--split-plan`, including
+the validation study's three held-session folds. Split pairs reuse sessions and
+are not independent observations. Reproducible FC means the minimum of the three
+full cortical profile correlations is at least 0.7, after the same cortical local
+edge exclusion used for mapping. Same label means one nonzero label across all
+six maps. Each split side must also have at least two valid sessions at that
+grayordinate. This gives reproducible/same, reproducible/competing, lower/same, and
+lower/competing states. Only the second state receives stripes. Numeric membership
+maps retain alternatives that may not appear in a particular stripe. Stripe
+widths are display geometry, not assignment probabilities.
+
+Session frequencies measure empirical assignment consistency at the available
+session duration. They are separate from `TemplateFit_R2` and from the fused-score
+softmax; none is a calibrated probability of biological network membership.
+The full-data WTA remains the main output and is never replaced by stripes.
+The older run-level repeat and experimental areal-mixture workflows remain
+separate opt-in controls.
+
+Volume export writes WTA labels, fused-score weights, and (when enabled) session
+frequencies under `Volume/`. Workbench maps cortex using the subject's midthickness,
+white, and pial surfaces with `-ribbon-constrained`. Labels use categorical mapping;
+scalar maps use ribbon weights normalized by mapped valid-surface coverage, so a
+constant probability remains constant within covered cortex. Original CIFTI volume
+components are resampled onto the requested grid and take precedence at overlap.
+Coverage NIfTIs distinguish unmapped voxels (0), cortical ribbon (1), and original
+volume targets (2). JSON sidecars preserve map names, label tables, and methods.
+All surfaces, the reference, and CIFTI volume must already share physical space;
+this exporter does not register between native and MNI spaces.
+
+Current subcortical regression derives neighborhoods from zero-based CIFTI voxels
+and subject surfaces, avoiding legacy distance matrices with a one-voxel origin
+shift. The historical rounded-distance boundary is preserved as physical distance
+strictly below `distance_mm + 0.5`. When aligned session/run metadata is available,
+regression fits each run separately. The default censored input uses retained
+frames for fitting. Updating code does not correct already regressed derivatives;
+regenerate from pre-regression data or use checked corrected inputs.
+
+
 RidgePFM is the current name for the method previously called Ridge-Fusion.
 New runs use `PFM_STRATEGY="ridgepfm"`, the `PFM/RidgePFM/` folder, and
 `RidgePFM_*` filenames. The strategy aliases `ridge_fusion`, `RidgeFusion`, and
@@ -75,7 +167,7 @@ PFM_RF_FC_WEIGHT=1.0
 PFM_RF_POSITIVE_FC_ONLY=0
 PFM_RF_SPATIAL_WEIGHT=0.05
 PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit"
-PFM_RF_LAMBDA=10
+PFM_RF_LAMBDA=1
 PFM_RF_LOCAL_EXCLUSION_MM=10
 PFM_RF_FC_DEMEAN=0
 PFM_RF_SUBCORT_REGRESS_ENABLE=1
@@ -99,24 +191,45 @@ Primary outputs:
 PFM/RidgePFM/RidgePFM_VTX.dlabel.nii
 PFM/RidgePFM/RidgePFM_VTX.L.border
 PFM/RidgePFM/RidgePFM_VTX.R.border
-PFM/RidgePFM/RidgePFM_VTX_R2.dtseries.nii
-PFM/RidgePFM/RidgePFM_VTX_ProbMaps.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX_TemplateFit_R2.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX_TopFusedScoreWeight.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX_SpatialPriorAvailable.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
 PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.dlabel.nii
 PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.L.border
 PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.R.border
-PFM/RidgePFM/RidgePFM_VTX+ArealParcellation_ProbMaps.dtseries.nii
+PFM/RidgePFM/RidgePFM_VTX+ArealParcellation_FusedScoreSoftmax.dtseries.nii
 PFM/RidgePFM/RidgePFM_Vertexwise_Review.scene
 PFM/RidgePFM/RidgePFM_ArealParcellation_Review.scene
+PFM/RidgePFM/RepeatAssignment/RidgePFM_VTX_PerScan_WTA.dlabel.nii
+PFM/RidgePFM/RepeatAssignment/RidgePFM_VTX_ScanRepeatNetworkFrequencies.dscalar.nii
+PFM/RidgePFM/RepeatAssignment/RidgePFM_VTX_ScanRepeatSupport.dscalar.nii
+PFM/RidgePFM/RepeatAssignment/RidgePFM_VTX_ScanRepeatCounts.npz
+PFM/RidgePFM/RepeatAssignment/run_inventory.json
+PFM/RidgePFM/RepeatAssignment/status.json
 PFM/RidgePFM/prep/
 PFM/RidgePFM/HomogeneityTest/
 ```
 
 Open `RidgePFM_VTX.dlabel.nii` in Connectome Workbench with the subject
-surfaces. Use `RidgePFM_VTX_R2.dtseries.nii` and probability maps as
-confidence-style supporting layers. `RidgePFM_Vertexwise_Review.scene` loads
-the vertexwise WTA/probability pair with vertexwise black border lines only.
-`RidgePFM_ArealParcellation_Review.scene` loads the areal WTA/probability
-pair with areal black border lines only.
+surfaces. Template-fit R2, spatial-prior availability, and normalized fused-score
+weights are separate supporting layers. Fused-score softmax values rank competing
+labels but are not calibrated probabilities of true network identity or temporal
+stability. `RidgePFM_Vertexwise_Review.scene` loads the vertexwise WTA/score pair
+with vertexwise black border lines only. `RidgePFM_ArealParcellation_Review.scene`
+loads the areal WTA/score pair with areal black border lines only.
+
+With `PFM_RF_REPEAT_SUPPORT_ENABLE=1` and at least two runs retaining
+`PFM_RF_REPEAT_MIN_FRAMES` frames, RidgePFM also
+maps each run independently and averages their categorical assignments. The full
+concatenated map remains the primary estimate. `ScanRepeatSupport` distinguishes
+support for that primary label, competing-label frequency, modal-label support,
+unavailable-run frequency, available-run count, and normalized label entropy.
+`ScanRepeatNetworkFrequencies` contains the conditional frequency of every
+network among available runs. These are observed temporal repeat frequencies,
+not probabilities of biological membership, simultaneous membership, or a
+calibrated forecast for a future scan. With fewer than two eligible runs,
+`status.json` records `not_estimable` and no confidence map is invented.
 
 Figure slots:
 

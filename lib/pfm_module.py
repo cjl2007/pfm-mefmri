@@ -250,6 +250,12 @@ def main() -> int:
     if int(args.save_scanidx_txt) == 1:
         np.savetxt(outdir / "ScanIdx.txt", scan_vec, fmt="%d")
     (outdir / "ScanInfo.json").write_text(json.dumps(run_meta, indent=2))
+    # Explicit frame-aligned session/run identities for confidence and regression.
+    from scipy.io import savemat
+    session_run = np.concatenate([np.tile([m['session'], m['run']], (m['n_timepoints'], 1)) for m in run_meta])
+    savemat(outdir / "ScanIdx.mat", {"ScanIdx": session_run})
+    savemat(outdir / "ScanIdx_Censored.mat", {"ScanIdx": session_run[keep]})
+
 
     summary = {
         "subject": args.subject,

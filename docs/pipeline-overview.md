@@ -79,12 +79,10 @@ needs to share an existing transform namespace.
 
 Use `bin/mefmri_import.sh` as the common front door for raw scanner exports and
 BIDS datasets. It dispatches to the raw importer when DICOM-like files are
-present and to the BIDS importer when BIDS-style `sub-*` NIfTIs are present.
-First copy/edit `config/mefmri_import_config.sh` as your study's `import.sh`; see
-[configuration setup](configuration.md):
+present and to the BIDS importer when BIDS-style `sub-*` NIfTIs are present:
 
 ```bash
-bash bin/mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 /path/to/MyStudy/config/import.sh --session 1
+bash bin/mefmri_import.sh /path/to/raw_dicom_export /path/to/study/ME001 config/mefmri_import_raw_config.sh --session 1 --nordic
 bash bin/mefmri_import.sh /path/to/bids 06 /path/to/study/ME06 --task rest --mode symlink --overwrite
 ```
 
@@ -181,7 +179,8 @@ community detection.
 
 With `TANS_ENABLE=1`, the wrapper calls the Python workflow in `TANS_CODE_ROOT`
 after PFM. TANS builds its separate head model from native `anat/T1w/T1w.nii.gz`
-and `anat/T2w/T2w.nii.gz`; it does not reuse the ACPC `anat/charm` head model.
+and uses `anat/T2w/T2w.nii.gz` when available; without T2w it falls back to a
+T1w-only CHARM model. It does not reuse the ACPC `anat/charm` head model.
 
 ```bash
 TANS_CODE_ROOT="/opt/pfm-tans/pipeline"

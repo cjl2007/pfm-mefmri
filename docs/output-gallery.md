@@ -1,9 +1,9 @@
 # Output gallery
 
-The QC, seed-FC, and individual-network images come from one densely sampled
-participant with **13 sessions and 26 resting-state runs**. These replace the
-earlier single-session layout examples. The TANS illustrations retain a separate
-SAL example and do not represent stimulation planning for the QC participant.
+The README's RidgePFM, crawling-seed FC, coregistration-over-time, and run-level
+signal examples come from **ME01**. Older summary reportlets retain their
+original densely sampled examples. The TANS illustrations retain a separate SAL
+example and do not represent stimulation planning for the QC participants.
 
 This gallery follows the participant from data-quality review to individual
 mapping and optional stimulation planning. It contains selected examples, not
@@ -12,12 +12,11 @@ clinical performance.
 
 ## Alignment and fieldmap/SDC review
 
-![Animated anatomical anchor and functional-reference alignment across 26 runs](assets/qc-coreg-over-time.gif)
+![ME01 anatomical anchor and functional-reference alignment across 44 longitudinal scans](assets/qc-coreg-over-time.gif)
 
-The animation cycles through the T1w anchor and all 26 saved run panels in numeric
-session/run order in a fast **8.87-second loop** (220 ms per run panel with
-short crossfades). It uses the production fade routine with fewer transition
-frames for a compact documentation asset; no registration is rerun.
+The animation cycles through the ME01 T1w anchor and all 44 saved corrected SBRef
+volumes in chronological scan order. Each panel uses the same anatomical
+boundary so drift or isolated failures are visible. No registration is rerun.
 
 ![One corrected run reference with anatomical outlines in three orthogonal views](assets/qc-coreg-bbr.png)
 
@@ -38,14 +37,13 @@ an intervention effect.
 
 ## Signal quality and network signal
 
-![Motion traces, FD, DVARS, and grayplots through denoising and MGTR](assets/qc-motion-grayplots.png)
+![ME01 motion, respiratory and pulse traces, FD, DVARS, and grayplots through denoising and MGTR](assets/qc-motion-grayplots.png)
 
-The motion figure shows **session 1, run 1**, selected by acquisition order for
-readability. It uses saved processing-stage CIFTIs, the production QC plotting
-code, 1,200 sampled grayordinates, and a generic display title. No denoising is
-rerun. Its 0.3 mm FD line reflects the example configuration, not a recommended
-universal threshold. The full subject report retains the other runs and the
-wide concatenated grayplot.
+The motion figure shows **ME01 session 1, run 1**. It uses saved processing-stage
+CIFTIs, the production QC plotting code, and 1,200 sampled grayordinates. The
+respiratory and pulse channels are aligned to scanner acquisition ticks and
+shown at their native temporal detail. No denoising is rerun. Its 0.3 mm FD line
+reflects the example configuration, not a recommended universal threshold.
 
 ![Censoring burden and signal-motion coupling across 26 runs in numeric session order](assets/qc-motion-coupling.png)
 
@@ -65,13 +63,15 @@ help reveal heterogeneous quality that a whole-brain average can hide.
 
 ## Seed-FC review
 
-![Animated preview of the crawling cortical seed-FC movie](assets/qc-seed-fc.gif)
+![Animated preview of the ME01 crawling cortical seed-FC movie](assets/qc-seed-fc.gif)
 
-[Full original seed-FC movie](assets/qc-seed-fc.mp4). The looping GIF samples one
-frame per second from the saved movie and plays at four frames per second,
-covering the full sweep in approximately 17.5 seconds. The original MP4 retains
-all frames. The [still image](assets/qc-seed-fc.png) is decoded at 12 seconds;
-no new connectivity maps are computed.
+[Full ME01 seed-FC movie](assets/qc-seed-fc.mp4). The looping GIF samples one
+frame per second from the 70.2-second movie and plays at four frames per second,
+covering the full sweep after a three-second opening callout identifies the
+small white seed. The MP4 retains all frames and has no added callout. The
+[still image](assets/qc-seed-fc.png) is decoded at 12 seconds. The
+movie uses ME01 subject-specific surfaces and the concatenated, 1.7 mm-smoothed
+resting-state input used for the RidgePFM example.
 The movie and scene are written to `QC/CrawlingSeedFC/` when enabled.
 
 ## Individual network representations

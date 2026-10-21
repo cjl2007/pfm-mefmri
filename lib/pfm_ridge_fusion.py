@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -84,10 +86,13 @@ def inject_subcortical_spatial_priors(
     spatial_full: np.ndarray,
     subcort_priors_nii: str,
     n_net: int,
-) -> None:
+) -> np.ndarray:
+    informative = np.zeros((axis.size,), dtype=bool)
     if not subcort_priors_nii:
-        return
+        return informative
     vol = nib.load(subcort_priors_nii)
+    if axis.affine is None or not np.allclose(vol.affine, axis.affine, atol=1e-4):
+        raise ValueError("Subcortical priors affine must match the CIFTI volume grid")
     arr = vol.get_fdata(dtype=np.float32)
     if arr.ndim == 3:
         arr = arr[..., np.newaxis]
@@ -114,10 +119,55 @@ def inject_subcortical_spatial_priors(
             or (vox[:, 2] >= arr.shape[2]).any()
         ):
             raise ValueError(f"Subcortical voxel indices are out of bounds for priors volume: {subcort_priors_nii}")
-        spatial_full[slc, :] = arr[vox[:, 0], vox[:, 1], vox[:, 2], :n_net]
+        block = arr[vox[:, 0], vox[:, 1], vox[:, 2], :n_net]
+        spatial_full[slc, :] = block
+        informative[slc] = np.ptp(block, axis=1) > 1e-12
         used += int(vox.shape[0])
 
     print(f"[ridge] loaded ACPC subcortical priors: {subcort_priors_nii} (rows={used})")
+    return informative
+
+
+def target_specific_ridge(
+    design: np.ndarray,
+    fingerprints: np.ndarray,
+    retained: list[np.ndarray],
+    lam: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fit each target with the design left after its local edge exclusion.
+
+    ``fingerprints`` is feature x target and must already contain zeros for
+    excluded features. ``retained`` gives the matching feature mask per target.
+    The returned fit R2 is calculated only across retained FC features.
+    """
+    n_targets = fingerprints.shape[1]
+    n_networks = design.shape[1]
+    beta = np.zeros((n_targets, n_networks), dtype=np.float64)
+    r2 = np.zeros((n_targets,), dtype=np.float32)
+    eye = np.eye(n_networks, dtype=np.float64)
+    for target, keep in enumerate(retained):
+        if not np.any(keep):
+            continue
+        ak = design[keep, :]
+        y = fingerprints[keep, target]
+        gram = ak.T @ ak
+        projection = ak.T @ y
+        coef = np.linalg.solve(gram + lam * eye, projection)
+        beta[target, :] = coef
+        residual = y - ak @ coef
+        ss_res = float(residual @ residual)
+        centered = y - y.mean()
+        ss_tot = float(centered @ centered)
+        r2[target] = np.float32(1.0 - ss_res / max(ss_tot, 1e-8))
+    return beta, r2
+
+
+def solve_target_grams(
+    projections: np.ndarray, grams: np.ndarray, lam: float
+) -> np.ndarray:
+    """Solve target-specific ridge systems from sufficient statistics."""
+    eye = np.eye(projections.shape[1], dtype=np.float64)
+    return np.linalg.solve(grams + lam * eye, projections[..., np.newaxis])[..., 0]
 
 
 def main() -> int:
@@ -137,11 +187,20 @@ def main() -> int:
         default="logit",
         help="transform used for spatial prior fusion; logit matches legacy V4/V5 MATLAB RidgePFM",
     )
-    ap.add_argument("--lambda", dest="lam", type=float, default=10.0)
+    ap.add_argument("--lambda", dest="lam", type=float, default=1.0)
     ap.add_argument("--local-exclusion-mm", type=float, default=10.0)
+    ap.add_argument(
+        "--fit-r2-mode",
+        choices=("exact", "skip"),
+        default="exact",
+        help="exact computes full FC-profile fit; skip retains exact labels and writes NaN fit values",
+    )
     ap.add_argument("--brain-structures-csv", default="")
     ap.add_argument("--subcort-priors-nii", default="", help="ACPC-space 4D subcortical priors NIfTI")
     ap.add_argument("--chunk", type=int, default=256)
+    ap.add_argument("--frame-indices", help="NPY row indices for an explicitly aligned session/split")
+    ap.add_argument("--fc-moments", help="Validated retained-feature FC energy/row-sum cache (NPZ), bound to input path/mtime/size and exclusion radius")
+    ap.add_argument("--local-kernel", choices=('auto','numpy'), default='auto', help='Optional compiled exact local corrections; auto falls back to NumPy without a compiler')
     ap.add_argument("--left-surf", required=True)
     ap.add_argument("--right-surf", required=True)
     args = ap.parse_args()
@@ -150,6 +209,11 @@ def main() -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     img = nib.load(args.in_cifti)
     data_tg = np.asanyarray(img.dataobj).astype(np.float32, copy=False)  # time x gray
+    if args.frame_indices:
+        frames = np.load(args.frame_indices)
+        if frames.ndim != 1 or frames.dtype.kind not in 'iu' or len(frames) < 3 or np.any(np.diff(frames) <= 0) or frames[0] < 0 or frames[-1] >= len(data_tg):
+            raise ValueError("Invalid frame indices")
+        data_tg = data_tg[frames]
     data = data_tg.T  # gray x time
     axis = img.header.get_axis(1)
 
@@ -162,6 +226,8 @@ def main() -> int:
     cortex_idx = np.asarray(cortex_idx, dtype=np.int32)
     n_gray, n_time = data.shape
     n_cort = cortex_idx.size
+    cortex_pos = np.full((n_gray,), -1, dtype=np.int32)
+    cortex_pos[cortex_idx] = np.arange(n_cort, dtype=np.int32)
 
     pri = sio.loadmat(args.priors_mat, squeeze_me=True, struct_as_record=False)["Priors"]
     pri_fc = np.asarray(pri.FC, dtype=np.float32)
@@ -171,6 +237,12 @@ def main() -> int:
     pri_spatial = np.asarray(pri.Spatial, dtype=np.float32)
     if pri_spatial.shape[0] != n_cort:
         pri_spatial = pri_spatial[:n_cort, :]
+    if pri_spatial.shape[0] != n_cort or pri_spatial.shape[1] < n_net:
+        raise ValueError(
+            f"Priors.Spatial shape {pri_spatial.shape} cannot supply "
+            f"{n_cort} cortical rows x {n_net} networks"
+        )
+    pri_spatial = pri_spatial[:, :n_net]
     labels_raw = np.asarray(pri.NetworkLabels).ravel()
     labels = [str(x).strip() for x in labels_raw[:n_net]]
     colors = np.asarray(pri.NetworkColors, dtype=np.float32)[:n_net, :]
@@ -179,59 +251,145 @@ def main() -> int:
     selected = parse_structures(axis, args.brain_structures_csv)
     if not selected.any():
         selected[:] = True
-    good_idx = np.where(selected)[0]
+    valid_signal = np.isfinite(data).all(axis=1) & (np.std(data, axis=1) > 1e-8)
+    if not valid_signal[cortex_idx].all():
+        raise ValueError("Cortical FC features contain nonfinite or constant time series")
+    good_idx = np.where(selected & valid_signal)[0]
 
     # Prepare design
     x_cort = zscore_rows(data[cortex_idx, :].astype(np.float64))
     a = pri_fc.astype(np.float64)
     a = a - a.mean(axis=0, keepdims=True)
     a /= np.maximum(np.sqrt((a * a).sum(axis=0, keepdims=True)), 1e-8)
-    w = np.linalg.solve(a.T @ a + args.lam * np.eye(n_net), a.T)  # n_net x n_cort
 
-    # Distance matrix (for local exclusion on cortical targets only)
+    # Distance matrix (for local exclusion on cortical targets only). Keep it
+    # memory mapped and read cortical target rows sequentially; advanced slicing
+    # the complete cortex would copy several gigabytes for standard CIFTIs.
     dist = np.load(args.distance_npy, mmap_mode="r")
-    d_cort = dist[np.ix_(cortex_idx, cortex_idx)].astype(np.float32)
+    if dist.ndim != 2 or dist.shape[0] < n_gray or dist.shape[1] < n_gray:
+        raise ValueError(f"Distance matrix {dist.shape} does not cover {n_gray} grayordinates")
 
     # Spatial priors full
     spatial_full = np.full((n_gray, n_net), 0.5, dtype=np.float32)
     spatial_full[cortex_idx, :] = pri_spatial
-    inject_subcortical_spatial_priors(axis, spatial_full, args.subcort_priors_nii, n_net)
+    spatial_informative = np.zeros((n_gray,), dtype=bool)
+    spatial_informative[cortex_idx] = np.ptp(pri_spatial, axis=1) > 1e-12
+    spatial_informative |= inject_subcortical_spatial_priors(
+        axis, spatial_full, args.subcort_priors_nii, n_net
+    )
     spatial_full = clamp_prob_smooth(spatial_full)
 
     label_idx = np.zeros((n_gray,), dtype=np.int32)
     prob_best = np.zeros((n_gray,), dtype=np.float32)
-    r2 = np.zeros((n_gray,), dtype=np.float32)
+    r2 = np.full((n_gray,), np.nan, dtype=np.float32)
     prob_all = np.zeros((n_gray, n_net), dtype=np.float32)
+    temporal_templates = x_cort.T @ a
+    global_gram = a.T @ a
+    moments = None
+    if args.fc_moments:
+        if args.frame_indices or args.fc_demean or args.positive_fc_only:
+            raise ValueError('FC moments require unmodified full-input signed FC')
+        moments = np.load(args.fc_moments)
+        source = Path(args.in_cifti).resolve(); stat = source.stat()
+        expected = dict(source=str(source), bytes=stat.st_size, mtime_ns=stat.st_mtime_ns,
+                        exclusion=args.local_exclusion_mm,
+                        distance=str(Path(args.distance_npy).resolve()), distance_mtime=Path(args.distance_npy).stat().st_mtime_ns)
+        if json.loads(str(moments['binding'])) != expected:
+            raise ValueError('FC moment cache does not match input/exclusion binding')
+        if moments['energy'].shape != (n_gray,) or moments['row_sum'].shape != (n_gray,):
+            raise ValueError('FC moment cache shape mismatch')
+
+    if args.fit_r2_mode == "skip" and (
+        int(args.fc_demean) == 1 or int(args.positive_fc_only) == 1
+    ):
+        raise ValueError("fit-r2-mode=skip is incompatible with FC demeaning or positive-FC-only")
+
+    native_terms = None
+    local_indices = None
+    if args.local_kernel == 'auto' and (args.fit_r2_mode == 'skip' or moments is not None):
+        from pfm_ridge_local import local_terms
+        local_indices = [np.flatnonzero(np.asarray(dist[gi, cortex_idx]) <= args.local_exclusion_mm) for gi in cortex_idx]
+        native_terms = local_terms(x_cort, a, local_indices, outdir/'native_cache')
+        print('[ridge] local correction kernel:', 'compiled' if native_terms is not None else 'numpy', flush=True)
 
     for i in range(0, good_idx.size, args.chunk):
         j = min(i + args.chunk, good_idx.size)
         g = good_idx[i:j]
         y = zscore_rows(data[g, :].astype(np.float64))
-        m = (x_cort @ y.T) / max(n_time - 1, 1)  # n_cort x chunk
-
-        # Demean FC fingerprints after local exclusion; useful without GSR/MGTR.
+        grams = np.broadcast_to(global_gram, (g.size, n_net, n_net)).copy()
+        retained = []
+        excluded = []
         for c, gi in enumerate(g):
             keep = np.ones((n_cort,), dtype=bool)
-            pos = np.where(cortex_idx == gi)[0]
-            if pos.size == 1:
-                keep &= d_cort[:, pos[0]] > args.local_exclusion_mm
-            if int(args.fc_demean) == 1:
-                if keep.any():
-                    m[:, c] -= float(m[keep, c].mean())
+            pos = int(cortex_pos[gi])
+            if pos >= 0:
+                # Distance rows follow the target order and are read sequentially.
+                if native_terms is not None:
+                    local = local_indices[pos]
+                    keep[local] = False
+                    grams[c] -= native_terms[1][pos]
                 else:
-                    m[:, c] = 0.0
-            m[~keep, c] = 0.0
+                    keep &= np.asarray(dist[gi, cortex_idx]) > args.local_exclusion_mm
+                    local = np.flatnonzero(~keep)
+                    grams[c] -= a[local].T @ a[local]
+            else:
+                local = np.empty((0,), dtype=np.int64)
+            excluded.append(local)
+            retained.append(keep)
 
-        if int(args.positive_fc_only) == 1:
-            beta = np.zeros((g.size, n_net), dtype=np.float64)
-            for c in range(g.size):
-                keep_pos = m[:, c] > 0
-                if not keep_pos.any():
-                    continue
-                ak = a[keep_pos, :]
-                beta[c, :] = np.linalg.solve(ak.T @ ak + args.lam * np.eye(n_net), ak.T @ m[keep_pos, c])
+        if args.fit_r2_mode == "exact" and moments is None:
+            # Rows use population-SD normalization, so division by n_time gives
+            # Pearson FC and matches the checked validation engine.
+            m = (x_cort @ y.T) / max(n_time, 1)  # n_cort x chunk
+            # Demean FC fingerprints after local exclusion; useful without GSR/MGTR.
+            for c, keep in enumerate(retained):
+                if int(args.fc_demean) == 1:
+                    if keep.any():
+                        m[:, c] -= float(m[keep, c].mean())
+                    else:
+                        m[:, c] = 0.0
+                m[~keep, c] = 0.0
+
+            if int(args.positive_fc_only) == 1:
+                beta = np.zeros((g.size, n_net), dtype=np.float64)
+                pos_retained = []
+                for c in range(g.size):
+                    keep_pos = retained[c] & (m[:, c] > 0)
+                    pos_retained.append(keep_pos)
+                    if not keep_pos.any():
+                        continue
+                    ak = a[keep_pos, :]
+                    beta[c, :] = np.linalg.solve(
+                        ak.T @ ak + args.lam * np.eye(n_net), ak.T @ m[keep_pos, c]
+                    )
+                _, r2_chunk = target_specific_ridge(a, m, pos_retained, args.lam)
+            else:
+                projection = m.T @ a
+                beta = solve_target_grams(projection, grams, args.lam)
+                ss = np.sum(m * m, axis=0)
+                counts = np.asarray([np.sum(k) for k in retained])
+                total = ss - np.sum(m, axis=0)**2 / np.maximum(counts, 1)
+                residual = ss - 2*np.sum(beta*projection, axis=1) + np.einsum('bi,bij,bj->b', beta, grams, beta)
+                r2_chunk = (1 - residual / np.maximum(total, 1e-8)).astype(np.float32)
+                r2_chunk[counts == 0] = 0
+            r2[g] = r2_chunk
         else:
-            beta = (w @ m).T  # chunk x n_net
+            # Exact fast path for labels: project directly onto the small network
+            # dictionary and subtract only locally excluded cortical edges.
+            projection = (y @ temporal_templates) / max(n_time, 1)
+            for c, local in enumerate(excluded):
+                if native_terms is not None and cortex_pos[g[c]] >= 0:
+                    projection[c] -= native_terms[0][cortex_pos[g[c]]]
+                elif local.size:
+                    local_fc = (x_cort[local] @ y[c]) / max(n_time, 1)
+                    projection[c] -= local_fc @ a[local]
+            beta = solve_target_grams(projection, grams, args.lam)
+            if moments is not None:
+                energy = moments['energy'][g]
+                count = np.asarray([np.sum(k) for k in retained])
+                total = energy - moments['row_sum'][g]**2 / np.maximum(count, 1)
+                residual = energy - 2*np.sum(beta*projection, axis=1) + np.einsum('bi,bij,bj->b', beta, grams, beta)
+                r2[g] = 1 - residual / np.maximum(total, 1e-8)
         beta_mu = beta.mean(axis=1, keepdims=True)
         beta_sd = np.maximum(beta.std(axis=1, keepdims=True), 1e-8)
         beta_z = (beta - beta_mu) / beta_sd
@@ -247,13 +405,6 @@ def main() -> int:
         label_idx[g] = best + 1
         prob_best[g] = p[np.arange(p.shape[0]), best]
         prob_all[g, :] = p
-
-        # crude R2 on FC map fit
-        m_hat = (a @ beta.T)  # n_cort x chunk
-        ss_res = ((m - m_hat) ** 2).sum(axis=0)
-        m_mu = m.mean(axis=0, keepdims=True)
-        ss_tot = ((m - m_mu) ** 2).sum(axis=0) + 1e-8
-        r2[g] = (1.0 - (ss_res / ss_tot)).astype(np.float32)
 
         if (i // args.chunk + 1) % 10 == 0:
             print(f"[ridge] processed {j}/{good_idx.size}")
@@ -277,8 +428,32 @@ def main() -> int:
         check=True,
     )
 
-    save_scalar_like(img, r2, outdir / f"{args.outfile}_R2.dtseries.nii")
-    save_prob_dtseries(img, prob_all, outdir / f"{args.outfile}_ProbMaps.dtseries.nii")
+    save_scalar_like(img, r2, outdir / f"{args.outfile}_TemplateFit_R2.dtseries.nii")
+    save_scalar_like(
+        img,
+        prob_best,
+        outdir / f"{args.outfile}_TopFusedScoreWeight.dtseries.nii",
+    )
+    save_scalar_like(
+        img,
+        spatial_informative.astype(np.float32),
+        outdir / f"{args.outfile}_SpatialPriorAvailable.dtseries.nii",
+    )
+    # This softmax is a normalized fused-score distribution. It is useful for
+    # ranking competing labels, but it is not calibrated P(true network).
+    save_prob_dtseries(
+        img,
+        prob_all,
+        outdir / f"{args.outfile}_FusedScoreSoftmax.dtseries.nii",
+    )
+    provenance = dict(parameters=vars(args), network_names=labels,
+                      cortical_prior_sha256=hashlib.sha256(Path(args.priors_mat).read_bytes()).hexdigest(),
+                      input_bytes=Path(args.in_cifti).stat().st_size,
+                      input_mtime_ns=Path(args.in_cifti).stat().st_mtime_ns,
+                      mapped_grayordinates=int(len(good_idx)),
+                      local_kernel='compiled' if native_terms is not None else 'numpy',
+                      interpretation='WTA and normalized fused scores; softmax weights are not calibrated assignment probabilities.')
+    (outdir / f'{args.outfile}_Mapping.json').write_text(json.dumps(provenance, indent=2)+'\n')
     try:
         if label_tmp.exists():
             label_tmp.unlink()

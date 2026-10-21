@@ -118,12 +118,13 @@ func/<FUNC_DIRNAME>/PFM/RidgePFM/
   RidgePFM_VTX.dlabel.nii
   RidgePFM_VTX.L.border
   RidgePFM_VTX.R.border
-  RidgePFM_VTX_R2.dtseries.nii
-  RidgePFM_VTX_ProbMaps.dtseries.nii
+  RidgePFM_VTX_TemplateFit_R2.dtseries.nii
+  RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
   RidgePFM_VTX+ArealParcellation.dlabel.nii
   RidgePFM_VTX+ArealParcellation.L.border
   RidgePFM_VTX+ArealParcellation.R.border
-  RidgePFM_VTX+ArealParcellation_ProbMaps.dtseries.nii
+  RidgePFM_VTX+ArealParcellation_FusedScoreSoftmax.dtseries.nii
+  RepeatAssignment/
   RidgePFM_Vertexwise_Review.scene
   RidgePFM_ArealParcellation_Review.scene
   prep/

@@ -15,6 +15,8 @@ from typing import Tuple
 
 import nibabel as nib
 import numpy as np
+from scipy.io import loadmat
+from scipy.spatial import cKDTree
 from nibabel.affines import apply_affine
 from nibabel.cifti2.cifti2_axes import BrainModelAxis, SeriesAxis
 
@@ -80,14 +82,27 @@ def compute_regression_masks_from_distance(
     return should_regress, nb_mask
 
 
+def regress_runs(y, neighbor_mean, runs):
+    """Separate run slopes/intercepts; inputs are the retained fitting frames."""
+    design = np.column_stack((neighbor_mean, np.ones(len(y))))
+    residual = np.asarray(y, dtype=np.float64).copy()
+    for rows in runs:
+        if len(rows) < 3:
+            raise ValueError('Each run needs at least three retained frames for regression')
+        beta = np.linalg.lstsq(design[rows], y[rows], rcond=None)[0]
+        residual[rows] = y[rows] - design[rows] @ beta
+    return residual
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Subcortical neighborhood regression for CIFTI dtseries")
     ap.add_argument("--in-cifti", required=True)
     ap.add_argument("--out-cifti", required=True)
     ap.add_argument("--left-surf", required=True)
     ap.add_argument("--right-surf", required=True)
-    ap.add_argument("--distance-npy", default="", help="Full grayordinate distance matrix; preferred for legacy-compatible neighborhoods")
+    ap.add_argument("--distance-npy", default="", help="Optional checked full grayordinate distance matrix; default derives physical neighborhoods from surfaces and CIFTI voxels")
     ap.add_argument("--distance-mm", type=float, default=20.0)
+    ap.add_argument("--scan-idx", default="", help="Frame-aligned MAT ScanIdx [session, run]; fit separate run intercepts/slopes")
     ap.add_argument("--max-subvox", type=int, default=0, help="Optional debug cap on #subcortical voxels (0=all)")
     args = ap.parse_args()
 
@@ -108,7 +123,13 @@ def main() -> int:
         sub_idx = sub_idx[: args.max_subvox]
 
     out = data.copy()
-    ones = np.ones((data.shape[0], 1), dtype=np.float64)
+    if args.scan_idx:
+        groups = np.asarray(loadmat(args.scan_idx)['ScanIdx'])
+        if groups.shape != (len(data), 2) or not np.isfinite(groups).all():
+            raise ValueError('ScanIdx must align exactly with input frames')
+        runs = [np.flatnonzero((groups == pair).all(1)) for pair in np.unique(groups, axis=0)]
+    else:
+        runs = [np.arange(len(data))]
     dist_mm = float(args.distance_mm)
     dist = np.load(args.distance_npy, mmap_mode="r") if args.distance_npy else None
     if dist is not None and dist.shape != (data.shape[1], data.shape[1]):
@@ -116,6 +137,8 @@ def main() -> int:
 
     n_regressed = 0
     n_skipped = 0
+    cortex_idx = np.flatnonzero(cortex)
+    tree = cKDTree(coords[cortex_idx])
     for i, gi in enumerate(sub_idx, start=1):
         if dist is not None:
             should_regress, nb_mask = compute_regression_masks_from_distance(
@@ -125,9 +148,13 @@ def main() -> int:
                 dist_mm,
             )
         else:
-            d = np.linalg.norm(coords - coords[gi][None, :], axis=1)
-            should_regress = bool(np.any(d[cortex] <= dist_mm))
-            nb_mask = cortex & (d <= dist_mm)
+            # Preserve rounded-distance <= threshold convention without the
+            # legacy one-voxel shift or dependence on an old distance matrix.
+            near = np.asarray(tree.query_ball_point(coords[gi], dist_mm + 0.5), dtype=int)
+            near = near[np.linalg.norm(coords[cortex_idx[near]] - coords[gi], axis=1) < dist_mm + 0.5]
+            nb_mask = np.zeros_like(cortex)
+            nb_mask[cortex_idx[near]] = True
+            should_regress = bool(len(near))
 
         if not should_regress or not nb_mask.any():
             n_skipped += 1
@@ -140,9 +167,7 @@ def main() -> int:
             nb_mean = nb_ts[:, 0].astype(np.float64, copy=False)
 
         y = data[:, gi].astype(np.float64, copy=False)
-        X = np.column_stack((nb_mean, ones[:, 0]))
-        beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
-        resid = y - X @ beta
+        resid = regress_runs(y, nb_mean, runs)
         out[:, gi] = resid.astype(np.float32, copy=False)
         n_regressed += 1
 

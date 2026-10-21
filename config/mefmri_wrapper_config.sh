@@ -286,8 +286,9 @@ PFM_HOMOGENEITY_ALPHA=0.05
 # -----------------------------------------------------------------------------
 # 3i) TANS (optional post-PFM stage)
 # -----------------------------------------------------------------------------
-# TANS creates a separate CHARM head model from native anat/T1w/T1w.nii.gz and
-# anat/T2w/T2w.nii.gz. It never reuses anat/charm, whose inputs are ACPC images.
+# TANS creates a separate CHARM head model from native anat/T1w/T1w.nii.gz,
+# adding native anat/T2w/T2w.nii.gz when available. It never reuses anat/charm,
+# whose inputs are ACPC images.
 TANS_ENABLE=0
 TANS_CONFIG_FILE=""              # required when TANS_ENABLE=1; YAML template
 TANS_CODE_ROOT=""                # required: /path/to/pfm-tans/pipeline; separate checkout
@@ -466,19 +467,33 @@ PFM_RF_FC_DEMEAN=0             # set 1 when ridgepfm input has not had GSR/MGTR;
 PFM_RF_POSITIVE_FC_ONLY=0         # experimental; set 1 to fit only positive target FC edges (legacy V5 option)
 PFM_RF_SPATIAL_WEIGHT=0.05         # weight on spatial/network priors
 PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit" # logit matches legacy V4/V5 RidgePFM; log is retained for comparisons
-PFM_RF_LAMBDA=10                  # ridge penalty; larger values shrink estimates more strongly toward priors
-PFM_RF_LOCAL_EXCLUSION_MM=30      # excludes nearby vertices from FC fingerprints to avoid local smoothing bias
+PFM_RF_LAMBDA=1                   # validated default; 10 over-stabilizes labels and worsens held-visit FC prediction
+PFM_RF_LOCAL_EXCLUSION_MM=10      # validated target-specific local exclusion radius
+PFM_RF_FIT_R2_MODE="exact"        # exact writes full-profile fit; skip accelerates label-only mapping and writes NaN fit
+PFM_RF_REPEAT_SUPPORT_ENABLE=0    # independently map eligible runs and summarize temporal assignment support
+PFM_RF_REPEAT_MIN_FRAMES=30       # exclude scans with fewer retained frames; fewer than two scans => not estimable
+PFM_RF_REPEAT_OUTDIR_NAME="RepeatAssignment"
+PFM_RF_REPEAT_KEEP_RUN_ARTIFACTS=0 # combined per-scan dlabel is retained; discard redundant temporary run products
 PFM_RF_SUBCORT_REGRESS_ENABLE=1   # regress nearby cortical signal from subcortex before PFM estimation
 PFM_RF_SUBCORT_REGRESS_DISTANCE_MM=20
-PFM_RF_BRAIN_STRUCTURES_CSV="CORTEX_LEFT,CEREBELLUM_LEFT,ACCUMBENS_LEFT,CAUDATE_LEFT,PUTAMEN_LEFT,THALAMUS_LEFT,HIPPOCAMPUS_LEFT,AMYGDALA_LEFT,CORTEX_RIGHT,CEREBELLUM_RIGHT,ACCUMBENS_RIGHT,CAUDATE_RIGHT,PUTAMEN_RIGHT,THALAMUS_RIGHT,HIPPOCAMPUS_RIGHT,AMYGDALA_RIGHT"
+PFM_RF_BRAIN_STRUCTURES_CSV=""    # empty maps every CIFTI grayordinate, including structures without spatial priors
 PFM_RF_SMOOTHING_KERNEL=1.7       # mm; set 0 to disable CIFTI smoothing before PFM estimation
 
 # Optional areal parcellation of the network-level PFM output.
 PFM_AREAL_ENABLE=1
 PFM_AREAL_OUTFILE=""              # empty => auto: <network-label-output>+ArealParcellation
 PFM_AREAL_MIN_SIZE=30             # minimum parcel size in grayordinates
-PFM_PRIORS_MAT="$PFM_NETWORK_PRIORS_CORTICAL_MAT"
-PFM_SUBCORT_PRIORS_NII="$PFM_NETWORK_PRIORS_SUBCORTICAL_NII"
+PFM_RF_TAXONOMY="Lynch2024"       # Lynch2024 | Du2024 | Hermosillo2024 | Kong2019
+PFM_PRIORS_MAT=""                 # optional custom override; empty selects taxonomy assets
+PFM_RF_CONFIDENCE_ENABLE=0        # session frequencies + three pooled split pairs + separate stripes
+PFM_RF_CONFIDENCE_SCAN_IDX=""     # aligned ScanIdx.mat; default is in concatenation directory
+PFM_RF_CONFIDENCE_FC_THRESHOLD=0.7
+PFM_RF_VOLUME_ENABLE=0            # ribbon-constrained WTA and scalar NIfTI export
+PFM_RF_VOLUME_ANATOMICAL_TARGET="acpc" # acpc | native (original T1w) | custom
+PFM_RF_VOLUME_REFERENCE=""        # target grid override; native defaults to anat/T1w/T1w.nii.gz
+PFM_RF_VOLUME_ACPC_REFERENCE=""   # ribbon-mapping grid; defaults to T1w_acpc_dc_restore_brain.nii.gz
+PFM_RF_VOLUME_ACPC_TO_TARGET_XFM="" # custom transform; native defaults to xfms/acpc2orig.mat
+PFM_SUBCORT_PRIORS_NII=""          # custom priors only; taxonomy selects its own volume prior
 PFM_NEIGHBORS_MAT="$PFM_RESOURCES_ROOT/Cifti_surf_neighbors_LR_normalwall.mat"
 
 PFM_RF_REVIEW_SCENE_ENABLE=1
@@ -490,7 +505,7 @@ PFM_RF_AREAL_REVIEW_SCENE_OUTFILE="RidgePFM_ArealParcellation_Review.scene"
 # Fixed full-data parcels are evaluated with blocked random temporal thirds and
 # a parcelwise candidate-identity null/FDR; the max-statistic result is retained
 # as a stricter tier. Surviving parcels are rendered at whole-parcel and local scales.
-# Optional experimental analysis; enable explicitly after reviewing its settings.
+# Preliminary behavior is encouraging; enabled for review by default.
 PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=0
 PFM_RF_MULTINETWORK_STRIPE_PRESET="balanced" # strict | balanced | loose | custom
 PFM_RF_MULTINETWORK_OUTDIR_NAME="ExperimentalMultiNetwork"

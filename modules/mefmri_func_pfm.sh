@@ -58,14 +58,34 @@ PFM_RF_FC_DEMEAN="${PFM_RF_FC_DEMEAN:-0}"
 PFM_RF_POSITIVE_FC_ONLY="${PFM_RF_POSITIVE_FC_ONLY:-0}"
 PFM_RF_SPATIAL_WEIGHT="${PFM_RF_SPATIAL_WEIGHT:-0.05}"
 PFM_RF_SPATIAL_PRIOR_TRANSFORM="${PFM_RF_SPATIAL_PRIOR_TRANSFORM:-logit}"
-PFM_RF_LAMBDA="${PFM_RF_LAMBDA:-10}"
+PFM_RF_LAMBDA="${PFM_RF_LAMBDA:-1}"
 PFM_RF_LOCAL_EXCLUSION_MM="${PFM_RF_LOCAL_EXCLUSION_MM:-10}"
+PFM_RF_FIT_R2_MODE="${PFM_RF_FIT_R2_MODE:-exact}"
+PFM_RF_REPEAT_SUPPORT_ENABLE="${PFM_RF_REPEAT_SUPPORT_ENABLE:-0}"
+PFM_RF_REPEAT_MIN_FRAMES="${PFM_RF_REPEAT_MIN_FRAMES:-30}"
+PFM_RF_REPEAT_OUTDIR_NAME="${PFM_RF_REPEAT_OUTDIR_NAME:-RepeatAssignment}"
+PFM_RF_REPEAT_KEEP_RUN_ARTIFACTS="${PFM_RF_REPEAT_KEEP_RUN_ARTIFACTS:-0}"
 PFM_RF_SUBCORT_REGRESS_ENABLE="${PFM_RF_SUBCORT_REGRESS_ENABLE:-1}"
 PFM_RF_SUBCORT_REGRESS_DISTANCE_MM="${PFM_RF_SUBCORT_REGRESS_DISTANCE_MM:-20}"
-PFM_RF_BRAIN_STRUCTURES_CSV="${PFM_RF_BRAIN_STRUCTURES_CSV:-CORTEX_LEFT,CEREBELLUM_LEFT,ACCUMBENS_LEFT,CAUDATE_LEFT,PUTAMEN_LEFT,THALAMUS_LEFT,HIPPOCAMPUS_LEFT,AMYGDALA_LEFT,CORTEX_RIGHT,CEREBELLUM_RIGHT,ACCUMBENS_RIGHT,CAUDATE_RIGHT,PUTAMEN_RIGHT,THALAMUS_RIGHT,HIPPOCAMPUS_RIGHT,AMYGDALA_RIGHT}"
+PFM_RF_BRAIN_STRUCTURES_CSV="${PFM_RF_BRAIN_STRUCTURES_CSV:-}"
 PFM_RF_SMOOTHING_KERNEL="${PFM_RF_SMOOTHING_KERNEL:-1.7}"
 PFM_PRIORS_MAT="${PFM_PRIORS_MAT:-${NETWORK_PRIORS_MAT:-}}"
 PFM_SUBCORT_PRIORS_NII="${PFM_SUBCORT_PRIORS_NII:-}"
+# Taxonomy-specific resources; absent volume priors deliberately mean FC-only.
+PFM_RF_TAXONOMY="${PFM_RF_TAXONOMY:-Lynch2024}"
+case "$PFM_RF_TAXONOMY" in
+  Lynch2024|Du2024|Hermosillo2024|Kong2019) ;;
+  *) echo "ERROR: unsupported PFM_RF_TAXONOMY=$PFM_RF_TAXONOMY"; exit 2 ;;
+esac
+if [[ -z "$PFM_PRIORS_MAT" ]]; then
+  PFM_PRIORS_MAT="${PFM_RESOURCES_ROOT}/PriorsPFM/${PFM_RF_TAXONOMY}/PriorsCortical.mat"
+  PFM_SUBCORT_PRIORS_NII="${PFM_RESOURCES_ROOT}/PriorsPFM/${PFM_RF_TAXONOMY}/PriorsSubcortical.nii.gz"
+  [[ -f "$PFM_SUBCORT_PRIORS_NII" ]] || PFM_SUBCORT_PRIORS_NII=""
+fi
+PFM_RF_CONFIDENCE_ENABLE="${PFM_RF_CONFIDENCE_ENABLE:-0}"
+PFM_RF_CONFIDENCE_SCAN_IDX="${PFM_RF_CONFIDENCE_SCAN_IDX:-${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanIdx.mat}"
+PFM_RF_CONFIDENCE_FC_THRESHOLD="${PFM_RF_CONFIDENCE_FC_THRESHOLD:-0.7}"
+PFM_RF_VOLUME_ENABLE="${PFM_RF_VOLUME_ENABLE:-0}"
 PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-${FUNC_XFMS_DIRNAME:-${FuncDirName}}}"
 
 PFM_AREAL_ENABLE="${PFM_AREAL_ENABLE:-0}"
@@ -243,13 +263,16 @@ if [[ "${PFM_RF_SUBCORT_REGRESS_ENABLE}" == "1" ]]; then
   IN_BASENAME="$(basename "$PFM_INPUT_CIFTI" .dtseries.nii)"
   PFM_INPUT_CIFTI_REG="${PREP_DIR}/${IN_BASENAME}+SubcortRegression.dtseries.nii"
   echo "[pfm] running Python subcortical regression (distance=${PFM_RF_SUBCORT_REGRESS_DISTANCE_MM} mm) -> ${PFM_INPUT_CIFTI_REG}"
+  regression_metadata=( )
+  regression_scan_idx="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanIdx.mat"
+  [[ "$PFM_INPUT_CIFTI" != *+FDlt* ]] || regression_scan_idx="${regression_scan_idx%ScanIdx.mat}ScanIdx_Censored.mat"
+  [[ ! -f "$regression_scan_idx" ]] || regression_metadata=( --scan-idx "$regression_scan_idx" )
   "$PFM_PYTHON" "$MEDIR/lib/pfm_subcort_regress.py" \
     --in-cifti "$PFM_INPUT_CIFTI" \
     --out-cifti "$PFM_INPUT_CIFTI_REG" \
     --left-surf "$L_MID" \
     --right-surf "$R_MID" \
-    --distance-npy "$PFM_DISTANCE_MATRIX" \
-    --distance-mm "$PFM_RF_SUBCORT_REGRESS_DISTANCE_MM"
+    --distance-mm "$PFM_RF_SUBCORT_REGRESS_DISTANCE_MM" "${regression_metadata[@]}"
   PFM_INPUT_CIFTI="$PFM_INPUT_CIFTI_REG"
 fi
 
@@ -298,12 +321,100 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
     --spatial-prior-transform "$PFM_RF_SPATIAL_PRIOR_TRANSFORM" \
     --lambda "$PFM_RF_LAMBDA" \
     --local-exclusion-mm "$PFM_RF_LOCAL_EXCLUSION_MM" \
+    --fit-r2-mode "$PFM_RF_FIT_R2_MODE" \
     --brain-structures-csv "$PFM_RF_BRAIN_STRUCTURES_CSV" \
     --subcort-priors-nii "$PFM_SUBCORT_PRIORS_ACPC" \
     --left-surf "$L_MID" \
     --right-surf "$R_MID"
   PFM_NETWORK_DLABEL="${PFM_OUTDIR}/${PFM_RF_OUTFILE}.dlabel.nii"
   PFM_AREAL_DISTANCE_MATRIX="$PFM_DISTANCE_MATRIX"
+
+  if [[ "$PFM_RF_CONFIDENCE_ENABLE" == "1" ]]; then
+    if [[ "$PFM_INPUT_CIFTI" == *+FDlt* && "$PFM_RF_CONFIDENCE_SCAN_IDX" == */ScanIdx.mat ]]; then
+      PFM_RF_CONFIDENCE_SCAN_IDX="${PFM_RF_CONFIDENCE_SCAN_IDX%ScanIdx.mat}ScanIdx_Censored.mat"
+    fi
+    "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_confidence.py" \
+      --in-cifti "$PFM_INPUT_CIFTI" --scan-idx "$PFM_RF_CONFIDENCE_SCAN_IDX" \
+      --full-map-dlabel "$PFM_NETWORK_DLABEL" --distance-npy "$PFM_DISTANCE_MATRIX" \
+      --priors-mat "$PFM_PRIORS_MAT" --subcort-priors-nii "$PFM_SUBCORT_PRIORS_ACPC" \
+      --left-surf "$L_MID" --right-surf "$R_MID" \
+      --fc-weight "$PFM_RF_FC_WEIGHT" --fc-demean "$PFM_RF_FC_DEMEAN" \
+      --positive-fc-only "$PFM_RF_POSITIVE_FC_ONLY" \
+      --spatial-weight "$PFM_RF_SPATIAL_WEIGHT" --spatial-prior-transform "$PFM_RF_SPATIAL_PRIOR_TRANSFORM" \
+      --lambda "$PFM_RF_LAMBDA" --local-exclusion-mm "$PFM_RF_LOCAL_EXCLUSION_MM" \
+      --brain-structures-csv "$PFM_RF_BRAIN_STRUCTURES_CSV" \
+      --minimum-frames "$PFM_RF_REPEAT_MIN_FRAMES" --fc-threshold "$PFM_RF_CONFIDENCE_FC_THRESHOLD" \
+      --outdir "$PFM_OUTDIR/Confidence" --outfile "$PFM_RF_OUTFILE"
+  fi
+  if [[ "$PFM_RF_VOLUME_ENABLE" == "1" ]]; then
+    PFM_RF_VOLUME_ANATOMICAL_TARGET="${PFM_RF_VOLUME_ANATOMICAL_TARGET:-acpc}"
+    PFM_RF_VOLUME_ACPC_REFERENCE="${PFM_RF_VOLUME_ACPC_REFERENCE:-${SubjectDir}/anat/T1w/T1w_acpc_dc_restore_brain.nii.gz}"
+    volume_target_args=()
+    case "${PFM_RF_VOLUME_ANATOMICAL_TARGET,,}" in
+      acpc)
+        PFM_RF_VOLUME_REFERENCE="${PFM_RF_VOLUME_REFERENCE:-$PFM_RF_VOLUME_ACPC_REFERENCE}"
+        [[ "$PFM_RF_VOLUME_REFERENCE" == "$PFM_RF_VOLUME_ACPC_REFERENCE" ]] || { echo "ERROR: an ACPC volume target must use the ACPC ribbon-mapping reference"; exit 2; }
+        ;;
+      native|t1w)
+        PFM_RF_VOLUME_REFERENCE="${PFM_RF_VOLUME_REFERENCE:-${SubjectDir}/anat/T1w/T1w.nii.gz}"
+        PFM_RF_VOLUME_ACPC_TO_TARGET_XFM="${PFM_RF_VOLUME_ACPC_TO_TARGET_XFM:-${SubjectDir}/anat/T1w/xfms/acpc2orig.mat}"
+        volume_target_args=( --target-reference "$PFM_RF_VOLUME_REFERENCE" --acpc-to-target-xfm "$PFM_RF_VOLUME_ACPC_TO_TARGET_XFM" )
+        ;;
+      custom)
+        [[ -n "$PFM_RF_VOLUME_REFERENCE" && -n "$PFM_RF_VOLUME_ACPC_TO_TARGET_XFM" ]] || { echo "ERROR: custom PFM volume target requires PFM_RF_VOLUME_REFERENCE and PFM_RF_VOLUME_ACPC_TO_TARGET_XFM"; exit 2; }
+        volume_target_args=( --target-reference "$PFM_RF_VOLUME_REFERENCE" --acpc-to-target-xfm "$PFM_RF_VOLUME_ACPC_TO_TARGET_XFM" )
+        ;;
+      *) echo "ERROR: PFM_RF_VOLUME_ANATOMICAL_TARGET must be acpc, native, or custom"; exit 2 ;;
+    esac
+    [[ -f "$PFM_RF_VOLUME_ACPC_REFERENCE" ]] || { echo "ERROR: missing PFM ACPC volume reference: $PFM_RF_VOLUME_ACPC_REFERENCE"; exit 2; }
+    [[ -f "$PFM_RF_VOLUME_REFERENCE" ]] || { echo "ERROR: missing PFM volume target reference: $PFM_RF_VOLUME_REFERENCE"; exit 2; }
+    if [[ ${#volume_target_args[@]} -gt 0 ]]; then
+      [[ -f "$PFM_RF_VOLUME_ACPC_TO_TARGET_XFM" ]] || { echo "ERROR: missing PFM ACPC-to-target transform: $PFM_RF_VOLUME_ACPC_TO_TARGET_XFM"; exit 2; }
+    fi
+    volume_maps=( "$PFM_NETWORK_DLABEL" "$PFM_OUTDIR/${PFM_RF_OUTFILE}_FusedScoreSoftmax.dtseries.nii" )
+    if [[ "$PFM_RF_CONFIDENCE_ENABLE" == "1" ]]; then
+      volume_maps+=( "$PFM_OUTDIR/Confidence/${PFM_RF_OUTFILE}_SessionAssignmentFrequency.dscalar.nii" )
+    fi
+    for map in "${volume_maps[@]}"; do
+      volume_name="$(basename "$map")"; volume_name="${volume_name%.nii}"; volume_name="${volume_name%.*}"
+      "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_volume.py" --cifti "$map" \
+        --reference "$PFM_RF_VOLUME_ACPC_REFERENCE" --surface-dir "${SubjectDir}/anat/T1w/fsaverage_LR32k" \
+        --subject "$Subject" --output "$PFM_OUTDIR/Volume/${volume_name}.nii.gz" "${volume_target_args[@]}"
+    done
+  fi
+
+  if [[ "$PFM_RF_REPEAT_SUPPORT_ENABLE" == "1" ]]; then
+    PFM_RF_REPEAT_FD="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/FD.txt"
+    PFM_RF_REPEAT_SCAN_INFO="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanInfo.json"
+    PFM_RF_REPEAT_DIR="${PFM_OUTDIR}/${PFM_RF_REPEAT_OUTDIR_NAME}"
+    [[ -f "$PFM_RF_REPEAT_FD" ]] || { echo "ERROR: missing concatenation FD for RidgePFM repeat support: $PFM_RF_REPEAT_FD"; exit 2; }
+    [[ -f "$PFM_RF_REPEAT_SCAN_INFO" ]] || { echo "ERROR: missing ScanInfo.json for RidgePFM repeat support: $PFM_RF_REPEAT_SCAN_INFO"; exit 2; }
+    echo "[pfm] mapping individual runs for RidgePFM temporal assignment support"
+    "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_repeat_support.py" \
+      --in-cifti "$PFM_INPUT_CIFTI" \
+      --full-map-dlabel "$PFM_NETWORK_DLABEL" \
+      --fd-txt "$PFM_RF_REPEAT_FD" \
+      --scan-info-json "$PFM_RF_REPEAT_SCAN_INFO" \
+      --fd-threshold "$PFM_FD_THRESHOLD" \
+      --minimum-frames "$PFM_RF_REPEAT_MIN_FRAMES" \
+      --mapper "$MEDIR/lib/pfm_ridge_fusion.py" \
+      --distance-npy "$PFM_DISTANCE_MATRIX" \
+      --priors-mat "$PFM_PRIORS_MAT" \
+      --subcort-priors-nii "$PFM_SUBCORT_PRIORS_ACPC" \
+      --fc-weight "$PFM_RF_FC_WEIGHT" \
+      --fc-demean "$PFM_RF_FC_DEMEAN" \
+      --positive-fc-only "$PFM_RF_POSITIVE_FC_ONLY" \
+      --spatial-weight "$PFM_RF_SPATIAL_WEIGHT" \
+      --spatial-prior-transform "$PFM_RF_SPATIAL_PRIOR_TRANSFORM" \
+      --lambda "$PFM_RF_LAMBDA" \
+      --local-exclusion-mm "$PFM_RF_LOCAL_EXCLUSION_MM" \
+      --brain-structures-csv "$PFM_RF_BRAIN_STRUCTURES_CSV" \
+      --left-surf "$L_MID" \
+      --right-surf "$R_MID" \
+      --outdir "$PFM_RF_REPEAT_DIR" \
+      --outfile-prefix "$PFM_RF_OUTFILE" \
+      --keep-run-artifacts "$PFM_RF_REPEAT_KEEP_RUN_ARTIFACTS"
+  fi
 else
   if [[ "$PFM_INFOMAP_NETWORK_MAPPING_ENABLE" == "1" ]]; then
     [[ -f "$PFM_PRIORS_MAT" ]] || { echo "ERROR: missing PFM cortical network priors mat for infomap network mapping: $PFM_PRIORS_MAT"; exit 2; }
@@ -483,10 +594,10 @@ fi
 
 if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_AREAL_ENABLE" == "1" ]]; then
   if [[ "$PFM_RF_REVIEW_SCENE_ENABLE" == "1" ]]; then
-    echo "[pfm] writing RidgePFM areal probability maps and review scene"
+    echo "[pfm] writing RidgePFM areal fused-score maps and review scene"
     "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_fusion_review.py" \
       --network-dlabel "${PFM_OUTDIR}/${PFM_RF_OUTFILE}.dlabel.nii" \
-      --prob-maps "${PFM_OUTDIR}/${PFM_RF_OUTFILE}_ProbMaps.dtseries.nii" \
+      --score-maps "${PFM_OUTDIR}/${PFM_RF_OUTFILE}_FusedScoreSoftmax.dtseries.nii" \
       --areal-dlabel "${PFM_OUTDIR}/${PFM_AREAL_OUTFILE}.dlabel.nii" \
       --outdir "$PFM_OUTDIR" \
       --outfile-prefix "$PFM_AREAL_OUTFILE" \
@@ -509,7 +620,9 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE
   PFM_RF_MULTINETWORK_DIR="${PFM_OUTDIR}/${PFM_RF_MULTINETWORK_OUTDIR_NAME}"
   PFM_RF_MULTINETWORK_CV_PREFIX="${PFM_RF_MULTINETWORK_OUTFILE}CV"
   PFM_RF_MULTINETWORK_PARCELS="${PFM_OUTDIR}/${PFM_AREAL_OUTFILE}.dlabel.nii"
-  PFM_RF_MULTINETWORK_PROB="${PFM_OUTDIR}/${PFM_RF_OUTFILE}_ProbMaps.dtseries.nii"
+  # Normalized score weights used to identify plausible alternatives. These
+  # are not calibrated probabilities of true network identity.
+  PFM_RF_MULTINETWORK_PROB="${PFM_OUTDIR}/${PFM_RF_OUTFILE}_FusedScoreSoftmax.dtseries.nii"
   PFM_RF_MULTINETWORK_FD="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/FD.txt"
   PFM_RF_MULTINETWORK_SCAN_INFO="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanInfo.json"
   PFM_RF_MULTINETWORK_SUPPORT="${PFM_RF_MULTINETWORK_DIR}/${PFM_RF_MULTINETWORK_CV_PREFIX}_ParcelSummary.csv"

@@ -12,9 +12,6 @@ copied into a GitHub Wiki, or linked from a shorter top-level README.
 
 ## Start Here
 
-- [Configuration setup](configuration.md): copy templates, set site and acquisition
-  settings, validate a subject, and enable optional PFM/TANS.
-- [Dependencies](dependencies.md): core software, optional tools, and installation links.
 - [Quick Start](quick-start.md): minimal setup, expected input layout, and a
   first run.
 - [Pipeline Overview](pipeline-overview.md): processing stages, module order,
@@ -28,7 +25,7 @@ copied into a GitHub Wiki, or linked from a shorter top-level README.
   NSI, and PFM review.
 - [Individual and longitudinal studies](individual-longitudinal-studies.md):
   analysis epochs, pooled references, repeated observations, and intervention provenance.
-- [TANS integration](tans-integration.md): optional final-module setup and input selection.
+- [TANS integration](tans/README.md): optional final-module setup, configuration, and input selection.
 - [Output gallery](output-gallery.md): illustrated QC, mapping, and stimulation outputs.
 - [Local release draft](release-2026-09-21.md): included changes and publication checks.
 

@@ -119,8 +119,12 @@ MotionGrayPlots/manifest.json
 ```
 
 The report stacks multiple processing stages and overlays motion, FD,
-DVARS, FD censor markers, and run boundaries. The coupling summary reports
-motion/signal relationships before and after censoring.
+DVARS, FD censor markers, and run boundaries. When Siemens RESP/PULS logs and
+their acquisition-info log are present under
+`physio/unprocessed/<func>/session_<N>/run_<N>/`, it also aligns respiratory and
+pulse traces to scanner acquisition ticks and displays them above FD. Missing
+physiology remains optional and does not prevent report generation. The coupling
+summary reports motion/signal relationships before and after censoring.
 
 FD uses the same historical calculation as [CIFTI concatenation](pfm-outputs.md):
 motion parameters are bandstop-filtered only for TR < 2 seconds, from 0.2 Hz

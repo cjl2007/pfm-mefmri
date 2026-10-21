@@ -1,0 +1,32 @@
+{
+  "default": "Lynch2024",
+  "source": "RidgeFusionValidation/PriorsPFM; copied without modification",
+  "taxonomies": {
+    "Du2024": {
+      "subcortical_spatial_prior": false,
+      "files": {
+        "PriorsCortical.mat": "395a86e463afc8d19b615cffd8ec7eacae4b8e4f7fb5399e3f7ac0c14b3d5b87"
+      }
+    },
+    "Hermosillo2024": {
+      "subcortical_spatial_prior": true,
+      "files": {
+        "PriorsCortical.mat": "a2207e60a67f86ae03db3a4c0031c35d883add93d6d8e917e0eb85cf3a88ecdf",
+        "PriorsSubcortical.nii.gz": "b41b2393f8ac45ff2c8fa7bdbd5e8b61143918da9e2b3364e9e4d12a57d5068f"
+      }
+    },
+    "Kong2019": {
+      "subcortical_spatial_prior": false,
+      "files": {
+        "PriorsCortical.mat": "521e145b49f77125414ecd864a56fdb787180decae77de645fc6dde39de4dcd4"
+      }
+    },
+    "Lynch2024": {
+      "subcortical_spatial_prior": true,
+      "files": {
+        "PriorsCortical.mat": "51856c35d22c0c086f6332c9d7d11ae185f6367040750bef7b3439221abd5b8f",
+        "PriorsSubcortical.nii.gz": "15098b7888028205f1f8a84c69bdf9da55be4f2ac75e438e3d452a23953343ff"
+      }
+    }
+  }
+}

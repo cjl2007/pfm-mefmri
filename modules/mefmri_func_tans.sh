@@ -56,10 +56,10 @@ TANS_RESUME="${TANS_RESUME:-1}"
   echo "ERROR: missing native TANS T1w: ${SubjectDir}/anat/T1w/T1w.nii.gz" >&2
   exit 2
 }
-[[ -f "${SubjectDir}/anat/T2w/T2w.nii.gz" ]] || {
-  echo "ERROR: missing native TANS T2w: ${SubjectDir}/anat/T2w/T2w.nii.gz" >&2
-  exit 2
-}
+TansNativeT2w="${SubjectDir}/anat/T2w/T2w.nii.gz"
+if [[ ! -f "$TansNativeT2w" ]]; then
+  echo "[tans] WARNING: native T2w unavailable; falling back to a T1w-only CHARM head model" >&2
+fi
 [[ -f "$TANS_CONFIG_FILE" ]] || {
   echo "ERROR: missing TANS config: $TANS_CONFIG_FILE" >&2
   exit 2
@@ -154,7 +154,11 @@ if [[ "$TANS_RESUME" == "1" ]]; then
 fi
 
 echo "[tans] native T1w=${SubjectDir}/anat/T1w/T1w.nii.gz"
-echo "[tans] native T2w=${SubjectDir}/anat/T2w/T2w.nii.gz"
+if [[ -f "$TansNativeT2w" ]]; then
+  echo "[tans] native T2w=${TansNativeT2w}"
+else
+  echo "[tans] native T2w=unavailable (T1w-only fallback)"
+fi
 echo "[tans] PFM input root=${TANS_PFM_DIR}"
 echo "[tans] output=${TansOutputDir}"
 echo "[tans] treatment network=${TANS_TARGET_NETWORK:-none; calibration only}"

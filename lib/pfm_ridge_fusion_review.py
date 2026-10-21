@@ -396,14 +396,14 @@ def write_one_review_scene(
     return out_path
 
 
-def write_review_scenes(args: argparse.Namespace, areal_prob_maps: Path) -> list[Path]:
+def write_review_scenes(args: argparse.Namespace, areal_score_maps: Path) -> list[Path]:
     return [
         write_one_review_scene(
             args,
             scene_outfile=args.vertex_scene_outfile,
             scene_name_suffix="vertexwise_review",
             wta_path=Path(args.network_dlabel),
-            prob_path=Path(args.prob_maps),
+            prob_path=Path(args.score_maps),
             border_paths=[Path(args.network_left_border), Path(args.network_right_border)],
         ),
         write_one_review_scene(
@@ -411,7 +411,7 @@ def write_review_scenes(args: argparse.Namespace, areal_prob_maps: Path) -> list
             scene_outfile=args.areal_scene_outfile,
             scene_name_suffix="areal_parcellation_review",
             wta_path=Path(args.areal_dlabel),
-            prob_path=areal_prob_maps,
+            prob_path=areal_score_maps,
             border_paths=[Path(args.areal_left_border), Path(args.areal_right_border)],
         ),
     ]
@@ -420,7 +420,13 @@ def write_review_scenes(args: argparse.Namespace, areal_prob_maps: Path) -> list
 def main() -> int:
     ap = argparse.ArgumentParser(description="Create RidgePFM review outputs")
     ap.add_argument("--network-dlabel", required=True)
-    ap.add_argument("--prob-maps", required=True)
+    ap.add_argument(
+        "--score-maps",
+        "--prob-maps",
+        dest="score_maps",
+        required=True,
+        help="normalized fused-score maps; --prob-maps is a deprecated alias",
+    )
     ap.add_argument("--areal-dlabel", required=True)
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--outfile-prefix", default="RidgePFM_VTX+ArealParcellation")
@@ -441,13 +447,13 @@ def main() -> int:
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    areal_prob_maps = outdir / f"{args.outfile_prefix}_ProbMaps.dtseries.nii"
-    make_areal_probability_maps(Path(args.areal_dlabel), Path(args.prob_maps), areal_prob_maps)
-    print(f"[ridge-review] wrote {areal_prob_maps}")
+    areal_score_maps = outdir / f"{args.outfile_prefix}_FusedScoreSoftmax.dtseries.nii"
+    make_areal_probability_maps(Path(args.areal_dlabel), Path(args.score_maps), areal_score_maps)
+    print(f"[ridge-review] wrote {areal_score_maps}")
     if int(args.write_scene) == 1:
         if args.scene_outfile:
             args.vertex_scene_outfile = args.scene_outfile
-        for scene_path in write_review_scenes(args, areal_prob_maps):
+        for scene_path in write_review_scenes(args, areal_score_maps):
             print(f"[ridge-review] wrote {scene_path}")
     return 0
 

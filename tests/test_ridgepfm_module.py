@@ -18,6 +18,10 @@ class RidgePFMModuleTests(unittest.TestCase):
         subject = root/'study space/SUB001'
         surfaces = subject/'anat/T1w/fsaverage_LR32k'
         surfaces.mkdir(parents=True)
+        (subject/'anat/T1w/xfms').mkdir(parents=True)
+        for path in (subject/'anat/T1w/T1w_acpc_dc_restore_brain.nii.gz',
+                     subject/'anat/T1w/T1w.nii.gz', subject/'anat/T1w/xfms/acpc2orig.mat'):
+            path.touch()
         for hemi in ('L', 'R'):
             (surfaces/f'SUB001.{hemi}.midthickness.32k_fs_LR.surf.gii').touch()
         for name in ('input.dtseries.nii', 'distance.npy', 'priors.mat'):
@@ -55,6 +59,29 @@ class RidgePFMModuleTests(unittest.TestCase):
                                        ('--outfile', 'RidgePFM_VTX'), ('--fc-weight', '1.0'),
                                        ('--spatial-weight', '0.05')]:
                     self.assertEqual(args[args.index(flag)+1], expected)
+
+    def test_cortex_only_taxonomy_has_no_subcortical_fallback(self):
+        calls,_=self.run_module(PFM_RF_TAXONOMY='Du2024',PFM_PRIORS_MAT='')
+        args=calls[0]
+        self.assertEqual(args[args.index('--priors-mat')+1],str(ROOT/'res0urces/PriorsPFM/Du2024/PriorsCortical.mat'))
+        self.assertEqual(args[args.index('--subcort-priors-nii')+1],'')
+        self.assertEqual(args[args.index('--lambda')+1],'1')
+
+    def test_confidence_and_ribbon_export_are_separate_opt_in_calls(self):
+        calls,_=self.run_module(PFM_RF_CONFIDENCE_ENABLE='1',PFM_RF_VOLUME_ENABLE='1')
+        names=[Path(c[0]).name for c in calls]
+        self.assertEqual(names,['pfm_ridge_fusion.py','pfm_ridge_confidence.py']+['pfm_ridge_volume.py']*3)
+        conf=calls[1]
+        self.assertTrue(conf[conf.index('--outdir')+1].endswith('/RidgePFM/Confidence'))
+        self.assertEqual(conf[conf.index('--fc-threshold')+1],'0.7')
+        self.assertTrue(calls[-1][calls[-1].index('--cifti')+1].endswith('_SessionAssignmentFrequency.dscalar.nii'))
+
+    def test_native_volume_target_uses_original_t1_and_saved_transform(self):
+        calls,subject=self.run_module(PFM_RF_VOLUME_ENABLE='1',PFM_RF_VOLUME_ANATOMICAL_TARGET='native')
+        volume=calls[-1]
+        self.assertEqual(volume[volume.index('--reference')+1],str(subject/'anat/T1w/T1w_acpc_dc_restore_brain.nii.gz'))
+        self.assertEqual(volume[volume.index('--target-reference')+1],str(subject/'anat/T1w/T1w.nii.gz'))
+        self.assertEqual(volume[volume.index('--acpc-to-target-xfm')+1],str(subject/'anat/T1w/xfms/acpc2orig.mat'))
 
     def test_explicit_study_weights_and_prefix_are_preserved(self):
         calls, _ = self.run_module(PFM_RF_SPATIAL_WEIGHT='0.2', PFM_RF_FC_WEIGHT='0.8',

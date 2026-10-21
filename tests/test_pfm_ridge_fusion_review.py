@@ -111,7 +111,7 @@ class RidgePFMReviewTests(unittest.TestCase):
             left_surf="/tmp/S1.L.inflated.32k_fs_LR.surf.gii",
             right_surf="/tmp/S1.R.inflated.32k_fs_LR.surf.gii",
             wta_file="RidgePFM_VTX.dlabel.nii",
-            prob_file="RidgePFM_VTX_ProbMaps.dtseries.nii",
+            prob_file="RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii",
             border_files=[
                 ("RidgePFM_VTX.L.border", "CORTEX_LEFT"),
                 ("RidgePFM_VTX.R.border", "CORTEX_RIGHT"),
@@ -125,7 +125,7 @@ class RidgePFMReviewTests(unittest.TestCase):
             left_surf="/tmp/S1.L.inflated.32k_fs_LR.surf.gii",
             right_surf="/tmp/S1.R.inflated.32k_fs_LR.surf.gii",
             wta_file="RidgePFM_VTX+ArealParcellation.dlabel.nii",
-            prob_file="RidgePFM_VTX+ArealParcellation_ProbMaps.dtseries.nii",
+            prob_file="RidgePFM_VTX+ArealParcellation_FusedScoreSoftmax.dtseries.nii",
             border_files=[
                 ("RidgePFM_VTX+ArealParcellation.L.border", "CORTEX_LEFT"),
                 ("RidgePFM_VTX+ArealParcellation.R.border", "CORTEX_RIGHT"),
@@ -133,14 +133,14 @@ class RidgePFMReviewTests(unittest.TestCase):
         )
         for name in [
             "RidgePFM_VTX.dlabel.nii",
-            "RidgePFM_VTX_ProbMaps.dtseries.nii",
+            "RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii",
             "RidgePFM_VTX.L.border",
             "RidgePFM_VTX.R.border",
         ]:
             self.assertIn(name, vertex)
         for name in [
             "RidgePFM_VTX+ArealParcellation.dlabel.nii",
-            "RidgePFM_VTX+ArealParcellation_ProbMaps.dtseries.nii",
+            "RidgePFM_VTX+ArealParcellation_FusedScoreSoftmax.dtseries.nii",
             "RidgePFM_VTX+ArealParcellation.L.border",
             "RidgePFM_VTX+ArealParcellation.R.border",
         ]:
@@ -148,9 +148,9 @@ class RidgePFMReviewTests(unittest.TestCase):
         self.assertNotIn("RidgePFM_VTX+ArealParcellation.L.border", vertex)
         self.assertNotIn("RidgePFM_VTX.L.border", areal)
         self.assertGreaterEqual(vertex.count("RidgePFM_VTX.dlabel.nii"), 2)
-        self.assertGreaterEqual(vertex.count("RidgePFM_VTX_ProbMaps.dtseries.nii"), 2)
+        self.assertGreaterEqual(vertex.count("RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii"), 2)
         self.assertGreaterEqual(areal.count("RidgePFM_VTX+ArealParcellation.dlabel.nii"), 2)
-        self.assertGreaterEqual(areal.count("RidgePFM_VTX+ArealParcellation_ProbMaps.dtseries.nii"), 2)
+        self.assertGreaterEqual(areal.count("RidgePFM_VTX+ArealParcellation_FusedScoreSoftmax.dtseries.nii"), 2)
         for out in (vertex, areal):
             self.assertIn("DRAW_AS_LINES", out)
             self.assertIn("FEATURE_COLORING_TYPE_STANDARD_COLOR", out)

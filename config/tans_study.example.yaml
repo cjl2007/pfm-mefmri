@@ -1,13 +1,14 @@
-# Copy to a study-owned location and replace every /path/to and REPLACE_WITH value.
+# Copy to a study-owned location and edit every /opt path for your installation.
 # Full guidance: pfm-tans/docs/CONFIGURATION.md and docs/tans-integration.md here.
-# Hardware and calibration must be selected for your study before enabling TANS.
+# These hardware choices are an example, not universal study defaults.
 # Select treatment with --target-network / TANS_TARGET_NETWORK, not a new YAML target.
 schema_version: 1
 subject: "{subject}"
 
 inputs:
   categorical_networks: "{pfm_dir}/RidgePFM_VTX.dlabel.nii"
-  network_probabilities: "{pfm_dir}/RidgePFM_VTX_ProbMaps.dtseries.nii"
+  # Historical field name: RidgePFM fused-score weights are not calibrated probabilities.
+  network_probabilities: "{pfm_dir}/RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii"
   network_metadata: "{pfm_tans_root}/res0urces/Priors.mat"
   vertex_area: "{subject_dir}/anat/T1w/fsaverage_LR32k/{subject}.midthickness_va.32k_fs_LR.dscalar.nii"
 
@@ -25,8 +26,8 @@ subject_adapter:
   subject_dir: "{subject_dir}"
   native_t1w: "{subject_dir}/anat/T1w/T1w.nii.gz"
   native_t2w: "{subject_dir}/anat/T2w/T2w.nii.gz"
-  charm_binary: /path/to/SimNIBS/simnibs_env/bin/charm
-  workbench: /path/to/workbench/bin_linux64/wb_command
+  charm_binary: /opt/SimNIBS-4.5/simnibs_env/bin/charm
+  workbench: /opt/workbench/bin_linux64/wb_command
 
 components:
   quantiles: [0.10, 0.25, 0.50, 0.75, 0.90]
@@ -42,19 +43,20 @@ search:
   orientation_step_degrees: 15
 
 simulation:
-  simnibs_python: /path/to/SimNIBS/simnibs_env/bin/python
-  sm_hand_calibration_coil: /path/to/calibration_coil.ccd
-  treatment_coil: /path/to/treatment_coil.ccd
-  coil: /path/to/treatment_coil.ccd
+  simnibs_python: /opt/SimNIBS-4.5/simnibs_env/bin/python
+  sm_hand_calibration_coil: /opt/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_C-B60.ccd
+  treatment_coil: /opt/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd
+  coil: /opt/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd
   coil_distance_mm: 1
   didt_aperus: 1000000  # Historical key: SimNIBS value is A/s, i.e. 1 A/us reference.
   hotspot_percentiles: [99.9, 99.8, 99.7, 99.6, 99.5, 99.4, 99.3, 99.2, 99.1, 99.0]
 
 dosing:
   registry: "{pfm_tans_root}/res0urces/StimulatorCalibration/calibration_registry.json"
-  sm_hand_calibration: REPLACE_WITH_MATCHED_SM_HAND_CALIBRATION_ID
+  sm_hand_calibration: magventure_x100_c-b60_biphasic_normal
+  # Explicit hardware identity: Cool-B65, not Cool-B65-A/P.
   # Replace for the actual coil/stimulator/waveform/direction used in your study.
-  treatment_calibration: REPLACE_WITH_MATCHED_TREATMENT_CALIBRATION_ID
+  treatment_calibration: magventure_x100_cool-b65_biphasic_normal
   allow_similar_coil_calibration: false
   substitution_justification: ""
   # Configured upward ceiling for treatment console output relative to the measured
@@ -85,8 +87,8 @@ robustness:
 # search winner. The explicit equivalence assertion is required for auto-flip.
 prescription:
   handle_orientation:
-    mode: as_simulated
-    coil_180_degree_magnitude_equivalent: false
+    mode: prefer_posterior_inferior
+    coil_180_degree_magnitude_equivalent: true
     physical_handle_local_axis: negative_y
     posterior_weight: 1.0
     inferior_weight: 1.0

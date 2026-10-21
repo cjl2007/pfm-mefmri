@@ -1,9 +1,7 @@
 # Tutorials
 
 These tutorials are written as practical workflows. They assume the input data
-are already organized in the expected subject directory layout. First complete
-[configuration setup](configuration.md); edit the settings shown below in that
-study config and pass its path to each pipeline command.
+are already organized in the expected subject directory layout.
 
 ## Tutorial 1: Run One Resting-State Subject
 
@@ -29,7 +27,7 @@ PFM_STRATEGY="ridgepfm"
 Run:
 
 ```bash
-bash bin/mefmri_pipeline.sh /path/to/study/ME06 /path/to/MyStudy/config/mefmri.sh
+bash bin/mefmri_pipeline.sh /path/to/study/ME06
 ```
 
 Review in this order:
@@ -91,7 +89,7 @@ STOP_AFTER_MODULE="nsi"
 Run:
 
 ```bash
-bash bin/mefmri_pipeline.sh /path/to/study/ME06 /path/to/MyStudy/config/mefmri.sh
+bash bin/mefmri_pipeline.sh /path/to/study/ME06
 ```
 
 Inspect:
@@ -164,8 +162,8 @@ Inspect:
 
 ```text
 func/rest/PFM/RidgePFM/RidgePFM_VTX.dlabel.nii
-func/rest/PFM/RidgePFM/RidgePFM_VTX_R2.dtseries.nii
-func/rest/PFM/RidgePFM/RidgePFM_VTX_ProbMaps.dtseries.nii
+func/rest/PFM/RidgePFM/RidgePFM_VTX_TemplateFit_R2.dtseries.nii
+func/rest/PFM/RidgePFM/RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
 func/rest/PFM/RidgePFM/HomogeneityTest/RidgePFMHomogeneity_summary.png
 ```
 
@@ -226,7 +224,7 @@ STOP_AFTER_MODULE="pfm_update"
 Run:
 
 ```bash
-bash bin/mefmri_pipeline.sh /path/to/study/ME06 /path/to/MyStudy/config/mefmri.sh
+bash bin/mefmri_pipeline.sh /path/to/study/ME06
 ```
 
 Inspect the adjusted consensus outputs:
@@ -260,7 +258,7 @@ STOP_AFTER_MODULE="concat"
 Run:
 
 ```bash
-bash bin/mefmri_pipeline.sh /path/to/study/ME06 /path/to/MyStudy/config/mefmri.sh
+bash bin/mefmri_pipeline.sh /path/to/study/ME06
 ```
 
 Inspect:

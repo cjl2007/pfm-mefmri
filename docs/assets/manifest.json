@@ -1,7 +1,7 @@
 {
-  "publication_status": "local review; multi-visit example refreshed 2026-10-13; participant-derived figures require maintainer sharing-permission review",
+  "publication_status": "local review; ME01 RidgePFM and spatial-weight examples refreshed 2026-10-21",
   "source_data_modified": false,
-  "new_fmri_processing_or_fem_simulations": false,
+  "new_fmri_processing_or_fem_simulations": true,
   "assets": [
     {
       "file": "qc-coreg-bbr.png",
@@ -65,21 +65,21 @@
     },
     {
       "file": "qc-motion-grayplots.png",
-      "kind": "production QC re-render with generic display title",
-      "description": "Session 1/run 1, selected by acquisition order for readability; 1200 sampled grayordinates and FD 0.3 mm. Saved stage data; no denoising rerun.",
-      "sha256": "52072f0af4b373e3408a8786667bdfcc67213aa7f30c8f60748b834e37089d5f"
+      "kind": "production ME01 QC re-render",
+      "description": "ME01 session 1/run 1 with scanner-aligned respiration and pulse, 1200 sampled grayordinates, and FD 0.3 mm. Saved stage data; no denoising rerun.",
+      "sha256": "cd10816cb9f7212352e5e23b50c2be83b5eb69a25d990928216a4bca1d5c00eb"
     },
     {
       "file": "qc-seed-fc.mp4",
-      "kind": "unchanged saved movie",
-      "description": "Full 70-second seed-FC review movie.",
-      "sha256": "687efb4d6e2e0253862adb59bd263f363be9b16c174e76ad518b0ce231730d39"
+      "kind": "ME01 production-scene rendering",
+      "description": "Full 70.2-second ME01 seed-FC review movie using subject-specific surfaces and the concatenated 1.7 mm-smoothed input.",
+      "sha256": "74d44612ab10637bad1f0445ff7faee50f62c367b41e5d7f4961c1cf25a33965"
     },
     {
       "file": "qc-seed-fc.png",
       "kind": "decoded movie frame",
-      "description": "Frame decoded at 12 seconds; no new FC estimation.",
-      "sha256": "6f3cee01b4f0f815af2003b11edb8b3a7e70b429632e2427bf12d537ebc2ed01"
+      "description": "ME01 movie frame decoded at 12 seconds.",
+      "sha256": "246f8d8d49c7aa60f9004395a8947f4ddecd5df51612994e2af86cc8c0d0f33e"
     },
     {
       "file": "individual-workflow.svg",
@@ -89,15 +89,27 @@
     },
     {
       "file": "qc-coreg-over-time.gif",
-      "kind": "production fade animation assembled from saved reportlets",
-      "description": "T1w anchor and all 26 runs in numeric session/run order; 220 ms per run panel, 450 ms initial anchor, two 50 ms crossfade frames between panels; 8.87-second continuous loop at original panel resolution. No registration rerun.",
-      "sha256": "9ed83d57c143822ed8b239cf5cf401342922d0eb7548f565898261e42cf5ca47"
+      "kind": "ME01 animation assembled from saved coregistration volumes",
+      "description": "ME01 T1w anchor and all 44 corrected SBRefs in chronological scan order, with a shared anatomical boundary and scan-only counter. No registration rerun.",
+      "sha256": "7286ddbc64cecb411acefa1f20addb0b6b4c09875f2e991ff7e434dda71aeab7"
     },
     {
       "file": "qc-seed-fc.gif",
       "kind": "animated preview sampled from saved movie",
-      "description": "One frame per source second from the full 70-second movie, displayed at four frames per second at 960 x 540; DMN-Parietal and other seed-FC patterns are unchanged saved movie frames.",
-      "sha256": "345d7d16a324683d712f54960e35dc7cdaf3f2bc9abe4c99254388ec763b8a95"
+      "description": "ME01: a three-second seed callout followed by one frame per source second from the full 70.2-second movie, displayed at four frames per second at 960 x 540.",
+      "sha256": "f6617f67806a8e169e87a7188de24cea83b0ffff63f9bd3b6301bb019c04fb69"
+    },
+    {
+      "file": "pfm-ridgepfm-me01-taxonomies.gif",
+      "kind": "native Workbench rendering of RidgePFM estimates",
+      "description": "ME01 corrected-input mapping: four taxonomies; WTA, reproducible competing-label stripes, and ten-session assignment frequencies. Native Workbench scenes with subject surfaces.",
+      "sha256": "1e5ede538ec3632cc1c552796e79a1f16d04f532f7caf5b41e73af1badbe4528"
+    },
+    {
+      "file": "pfm-ridgepfm-me01-spatial-weights.gif",
+      "kind": "native Workbench rendering of RidgePFM estimates",
+      "description": "ME01 Lynch2024 spatial weights 0, .05, .1, .25, .5; fixed fitted FC evidence and ridge 1. Default labels match the new mapping exactly.",
+      "sha256": "dfdc607420cf0e499df4255c8ebf72befd4212e6a928e03b3223fcb06d622172"
     }
   ]
 }

@@ -9,8 +9,7 @@ preparation, target preparation, coil search, dose reports, and operator exports
 
 1. Install pfm-tans and its documented SimNIBS/Workbench/Python dependencies.
    Keep its `pipeline/`, `search/`, and `res0urces/` directories together.
-2. First create a complete [pfm-mefmri study config](configuration.md).
-   Copy [tans_study.example.yaml](../config/tans_study.example.yaml) into a
+2. Copy [tans_study.example.yaml](../config/tans_study.example.yaml) into a
    study-owned location. Set software paths, input maps, coils, calibration
    identities, search settings, retention, robustness, and dose limits.
 3. Add [tans_module.example.sh](../config/tans_module.example.sh) to the end of
@@ -21,17 +20,9 @@ preparation, target preparation, coil search, dose reports, and operator exports
    dependencies required by the TANS driver; the SimNIBS environment is the
    documented example.
 
-The release and fragment templates keep `TANS_ENABLE=0`. Replace every
-`/path/to` and `REPLACE_WITH` placeholder in the YAML, including both matched
-hardware calibration IDs. No coil/stimulator pair is selected for you. The
-YAML `simulation.coil` field should match `simulation.treatment_coil`.
-The default handle mode is `as_simulated`; only enable automatic 180-degree
-flipping after explicitly verifying the coil's magnitude equivalence.
-
-For example, after configuring the YAML, set:
+The release template keeps `TANS_ENABLE=0` until explicitly enabled. Set:
 
 ```bash
-PFM_ENABLE=1  # for a full upstream run; requires completed PFM for a TANS-only restart
 TANS_ENABLE=1
 TANS_CODE_ROOT="/opt/pfm-tans/pipeline"
 TANS_CONFIG_FILE="/data/MyStudy/config/tans.yaml"
@@ -63,10 +54,12 @@ for different physical hardware, pulse shapes, or current directions.
 
 ## Inputs and map selection
 
-The wrapper checks native `anat/T1w/T1w.nii.gz`, native `anat/T2w/T2w.nii.gz`,
-the YAML, driver, and PFM folder. TANS additionally requires compatible HCP-style
-fs_LR 32k surfaces/areas, anatomical labels and native/ACPC transforms. See its
-full input contract. Passing the wrapper's checks alone is not input validation.
+The wrapper requires native `anat/T1w/T1w.nii.gz` and uses native
+`anat/T2w/T2w.nii.gz` when available. If T2w is absent, TANS warns and builds a
+T1w-only CHARM head model. It also checks the YAML, driver, and PFM folder. TANS
+additionally requires compatible HCP-style fs_LR 32k surfaces/areas, anatomical
+labels and native/ACPC transforms. See its full input contract. Passing the
+wrapper's checks alone is not input validation.
 
 Default mapping input root:
 
@@ -75,7 +68,9 @@ Default mapping input root:
 ```
 
 The example YAML expects `RidgePFM_VTX.dlabel.nii` and
-`RidgePFM_VTX_ProbMaps.dtseries.nii`. For Infomap:
+`RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii`. The latter supplies relative
+network-ranking weights through TANS's historical `network_probabilities` field;
+it is not a calibrated probability of identity or repeat stability. For Infomap:
 
 - Set `TANS_PFM_DIR` to the chosen participant's `PFM/Infomap` directory.
 - Set YAML `inputs.categorical_networks` to
