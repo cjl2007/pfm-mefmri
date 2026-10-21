@@ -26,6 +26,18 @@ class RibbonExportTests(unittest.TestCase):
             dest=p/'frequency.nii.gz';export(scalar,ref,surfaces,dest)
             values=nib.load(dest).get_fdata()[...,0];coverage=nib.load(p/'frequency_Coverage.nii.gz').get_fdata()
             self.assertTrue((coverage==1).any());np.testing.assert_allclose(values[coverage>0],.6,atol=1e-6);self.assertTrue(np.all(values[coverage==0]==0));self.assertEqual(coverage[10,5,5],2)
+            # A subvoxel target-grid shift exercises linear interpolation at
+            # the tissue boundary. Valid-support normalization must preserve
+            # the scalar value and leave nearest-neighbor-unmapped voxels zero.
+            shifted=p/'shifted_reference.nii.gz';affine=np.eye(4);affine[0,3]=.4
+            nib.save(nib.Nifti1Image(np.zeros((20,11,11),np.uint8),affine),shifted)
+            identity=p/'identity.mat';np.savetxt(identity,np.eye(4))
+            shifted_dest=p/'frequency_shifted.nii.gz'
+            export(scalar,ref,surfaces,shifted_dest,shifted,identity)
+            shifted_values=nib.load(shifted_dest).get_fdata()[...,0]
+            shifted_coverage=nib.load(p/'frequency_shifted_Coverage.nii.gz').get_fdata()
+            np.testing.assert_allclose(shifted_values[shifted_coverage>0],.6,atol=1e-5)
+            self.assertTrue(np.all(shifted_values[shifted_coverage==0]==0))
             # A nondefault zero label makes Workbench renumber its label table.
             table={0:('Unavailable',(0,0,0,0)),1:('A',(1,0,0,1)),2:('B',(0,0,1,1))}
             label=p/'wta.dlabel.nii';nib.save(nib.Cifti2Image(np.array([[1]*4+[2]*4+[2]],np.int32),nib.Cifti2Header.from_axes((LabelAxis(['WTA'],[table]),axis))),label)

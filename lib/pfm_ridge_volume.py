@@ -104,11 +104,27 @@ def export(cifti, reference, surfaces, output, target_reference=None, acpc_to_ta
         target_reference=Path(target_reference) if target_reference else Path(reference)
         target_coverage=output.with_name(output.name.replace('.nii.gz','_Coverage.nii.gz'))
         if acpc_to_target_xfm:
-            mapped=tmp/'mapped_target.nii.gz' if label else output
+            mapped=tmp/'mapped_target.nii.gz'
             run(['flirt','-in',acpc,'-ref',target_reference,'-applyxfm','-init',acpc_to_target_xfm,
                  '-interp','nearestneighbour' if label else 'trilinear','-out',mapped])
             run(['flirt','-in',acpc_coverage,'-ref',target_reference,'-applyxfm','-init',acpc_to_target_xfm,
                  '-interp','nearestneighbour','-out',target_coverage])
+            if not label:
+                # Linear interpolation against zero-filled background attenuates
+                # continuous values at the transformed tissue boundary. Map a
+                # binary valid-support image with the same interpolation and
+                # divide it out, then honor the nearest-neighbor coverage mask.
+                acpc_support=tmp/'support_acpc.nii.gz';target_support=tmp/'support_target.nii.gz'
+                nib.save(nib.Nifti1Image((coverage>0).astype(np.float32),ref.affine),acpc_support)
+                run(['flirt','-in',acpc_support,'-ref',target_reference,'-applyxfm','-init',acpc_to_target_xfm,
+                     '-interp','trilinear','-out',target_support])
+                values=nib.load(mapped).get_fdata(dtype=np.float32)
+                support=nib.load(target_support).get_fdata(dtype=np.float32)
+                target_valid=nib.load(target_coverage).get_fdata(dtype=np.float32)>0
+                if values.ndim==3: values=values[...,None]
+                np.divide(values,support[...,None],out=values,where=support[...,None]>1e-8)
+                values[~target_valid]=0
+                nib.save(nib.Nifti1Image(values,nib.load(target_reference).affine),output)
         else:
             mapped=acpc if label else output
             if not label: shutil.copyfile(acpc,output)
@@ -121,7 +137,7 @@ def export(cifti, reference, surfaces, output, target_reference=None, acpc_to_ta
             run(['wb_command','-volume-label-import',mapped,table_path,output,'-discard-others'])
         meta=dict(source=str(Path(cifti).resolve()),reference=str(target_reference.resolve()),
                   ribbon_mapping_reference=str(Path(reference).resolve()),
-                  method='Workbench ribbon-constrained; cortical scalar values normalized by mapped valid-surface coverage; volume component takes precedence at overlap.',
+                  method='Workbench ribbon-constrained; cortical scalar values normalized by mapped valid-surface coverage; volume component takes precedence at overlap; transformed scalar targets are normalized by transformed valid-tissue support.',
                   coverage={'0':'outside mapped tissue','1':'cortical ribbon','2':'CIFTI volume'},
                   maps=[str(n) for n in getattr(image.header.get_axis(0),'name',range(nmap))],
                   space='Ribbon mapping is performed in ACPC anatomical space, then optionally transformed to the configured anatomical target.',
