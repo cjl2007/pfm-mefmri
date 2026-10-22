@@ -110,6 +110,18 @@
       "kind": "native Workbench rendering of RidgePFM estimates",
       "description": "ME01 Lynch2024 spatial weights 0, .05, .1, .25, .5; fixed fitted FC evidence and ridge 1. Default labels match the new mapping exactly.",
       "sha256": "dfdc607420cf0e499df4255c8ebf72befd4212e6a928e03b3223fcb06d622172"
+    },
+    {
+      "file": "me01-coreg-run-template-rows.gif",
+      "kind": "ME01 longitudinal coregistration animation",
+      "description": "44 run-template-refined SBRefs above fixed T1 anatomy; fixed tissue contours; 5 fps; no additional anatomical anchor.",
+      "sha256": "91bd31a3c7d866a5b54216f2d4b80816d05a237c3eaf28b5ec94601d61f69a17"
+    },
+    {
+      "file": "me01-coreg-run-template-rows.mp4",
+      "kind": "ME01 longitudinal coregistration animation",
+      "description": "44 run-template-refined SBRefs above fixed T1 anatomy; fixed tissue contours; 5 fps; no additional anatomical anchor.",
+      "sha256": "d82424902e46145f1692a219acc812f32dafbfba3168fe7eb0736c40ed1129a3"
     }
   ]
 }

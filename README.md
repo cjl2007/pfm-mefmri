@@ -73,11 +73,12 @@ functional connectivity expresses large-scale network structure
 
 *NSI-based estimate of PFM usability.*
 
-![ME01 coregistration review cycling from the anatomical anchor through 44 longitudinal functional references](docs/assets/qc-coreg-over-time-me01.gif)
+[![ME01 longitudinal alignment: cycling functional runs above fixed T1 anatomy, with colored tissue boundaries](docs/assets/me01-coreg-run-template-rows.gif)](docs/assets/me01-coreg-run-template-rows.mp4)
 
-*ME01 coregistration over time: the corrected SBRef from each of 44 scans is
-shown against the same anatomical boundary, making drift or isolated failures
-over time easy to see.*
+*ME01: 44 functional reference images cycle above fixed T1 anatomy, with
+white-matter (cyan), cortical gray-matter (orange), and ventricular-CSF (purple)
+boundaries. The goal is alignment to anatomy and reduced run-to-run variability
+in EPI placement.*
 
 ![ME01 motion, respiration, pulse, framewise displacement, DVARS, and grayplots through echo combination, MEICA, and MGTR](docs/assets/qc-motion-grayplots-me01.png)
 
