@@ -388,6 +388,18 @@
       "kind": "Reviewed workflow figure or reproducibility metadata",
       "sha256": "ffd89e3d3d58ee71e6f1a261bef2506ba8fccbf501c1d60cb5f29295ed51d6ff",
       "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/network-taxonomies-softmax-poster.png",
+      "kind": "Taxonomy WTA and representative softmax animation",
+      "sha256": "fa6925558f27ecfc5d0f43ac1e1fdb5026ca7e883a11c654b69dfeba938bc8a6",
+      "description": "20 frames; fixed WTA borders on softmax, shared Low\u2013High scale, actual taxonomy-specific labels."
+    },
+    {
+      "file": "ridgepfm/network-taxonomies-softmax.gif",
+      "kind": "Taxonomy WTA and representative softmax animation",
+      "sha256": "b29f209b40401ac3a13b03446bf36959b038cf2db9e10f562ef0ae301e365205",
+      "description": "20 frames; fixed WTA borders on softmax, shared Low\u2013High scale, actual taxonomy-specific labels."
     }
   ]
 }
