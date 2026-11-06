@@ -10,6 +10,8 @@ individualized TMS targeting with [TANS](https://github.com/cjl2007/pfm-tans).
 
 ![The dataset journey through pfm-mefmri: HCP anatomical pipelines, functional correction, longitudinal alignment, denoising, CIFTI outputs, QC, PFM, and individualized TMS targeting](docs/assets/pipeline-journey.svg)
 
+**[Open the interactive workflow and network-map viewers](https://cjl2007.github.io/pfm-mefmri/)**
+
 ## Explore the workflow
 
 | Section | What you will find |
@@ -36,16 +38,16 @@ templates and spatial priors whose [influence you can weight and explore](docs/r
 It is a work in progress. A conventional **Infomap** workflow is also supported
 as an option.
 
-[![Individual network assignments; open the viewer to select a network taxonomy and any softmax network](docs/assets/ridgepfm/taxonomy-explorer-poster.png)](docs/ridgepfm-taxonomy-explorer.html?raw=1)
+[![Individual network assignments; open the viewer to select a network taxonomy and any softmax network](docs/assets/ridgepfm/taxonomy-explorer-poster.png)](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip)
 
-**[Open the network-map selector](docs/ridgepfm-taxonomy-explorer.html?raw=1)**:
+**[Open the network-map selector](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip)**:
 choose **Lynch2024**, **Du2024**, **Hermosillo2024**, or **Kong2019**, then WTA
 labels or any network’s full-data softmax map. Check **Areal parcellation** to
 view parcels derived from that taxonomy’s network map and individual FC.
 Parcel fills show the majority network identity or mean softmax support;
 borders follow the selected taxonomy’s parcels. With the option off, network
 borders remain visible on softmax maps. Low–High colors show relative network
-support. Download the HTML and open it in a browser.
+support. Download and extract the ZIP, then open the HTML in a browser.
 
 [Explore λ and spatial-prior effects, then view the trade-off charts](docs/ridgepfm-parameters.md) ·
 [Mapping outputs](docs/pfm-outputs.md) · [Sampling across visits](docs/individual-longitudinal-studies.md).

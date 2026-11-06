@@ -1,0 +1,105 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>pfm-mefmri · README preview</title><style>html{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#fff;color:#1f2328;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}main{max-width:1180px;margin:26px auto 70px;padding:32px 40px;border:1px solid #d1d9e0;border-radius:6px}.preview-label{font-size:12px;color:#59636e;margin-bottom:28px}a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}h1,h2,h3{line-height:1.25;font-weight:600;margin-top:24px;margin-bottom:16px;scroll-margin-top:24px}h1{font-size:2em;padding-bottom:.3em;border-bottom:1px solid #d1d9e0}h2{font-size:1.5em;padding-bottom:.3em;border-bottom:1px solid #d1d9e0}h3{font-size:1.25em}p{margin-top:0;margin-bottom:16px}img{max-width:100%;height:auto;vertical-align:middle}p:has(>em:only-child){color:#59636e;font-size:14px}pre{overflow:auto;background:#f6f8fa;border-radius:6px;padding:16px;line-height:1.45;font-size:85%}code{background:#818b981f;padding:.2em .4em;border-radius:6px;font:85% ui-monospace,SFMono-Regular,Consolas,monospace}pre code{background:none;padding:0;font-size:100%}table{border-collapse:collapse;display:block;max-width:100%;overflow:auto;margin-bottom:16px;font-size:14px}th,td{padding:7px 12px;border:1px solid #d1d9e0}th{font-weight:600}tr:nth-child(even){background:#f6f8fa}details{margin:16px 0;padding:12px 16px;border:1px solid #d1d9e0;border-radius:6px}summary{cursor:pointer;font-weight:600}details[open] summary{margin-bottom:16px}li+li{margin-top:.25em}blockquote{margin:0 0 16px;padding:0 1em;color:#59636e;border-left:.25em solid #d1d9e0}hr{border:0;border-top:1px solid #d1d9e0;margin:24px 0}@media(max-width:760px){main{border:0;padding:20px 16px;margin:0}body{font-size:15px}}</style></head><body><main><h1 id="data-organization">Data organization</h1><p>Anatomy is shared by each participant. Functional inputs and outputs are grouped by dataset, session, and run. This example uses <strong>rest</strong>, <strong>Motor</strong>, and <strong>WorkingMemory</strong>; each dataset can have a different number of acquisitions.</p><h2 id="before-processing">Before processing</h2><p>Stage your inputs with <a href="https://github.com/cjl2007/pfm-mefmri/blob/main/docs/setup-and-inputs.md#importing-inputs">the importer</a>. The example below uses three echoes and TOPUP fieldmaps.</p><pre class="text"><code>MyStudy/
+└── SUB001/
+    ├── anat/
+    │   └── unprocessed/
+    │       ├── T1w/
+    │       │   └── T1w_1.nii.gz
+    │       └── T2w/                         # optional
+    │           └── T2w_1.nii.gz
+    └── func/
+        └── unprocessed/
+            ├── rest/
+            │   ├── field_maps/             # TOPUP example: matched AP/PA + JSON
+            │   │   ├── AP_S1_R1.nii.gz
+            │   │   ├── AP_S1_R1.json
+            │   │   ├── PA_S1_R1.nii.gz
+            │   │   ├── PA_S1_R1.json
+            │   │   └── ...                 # additional acquired fieldmap pairs
+            │   ├── session_1/
+            │   │   ├── run_1/
+            │   │   │   ├── Rest_S1_R1_E1.nii.gz
+            │   │   │   ├── Rest_S1_R1_E1.json
+            │   │   │   ├── Rest_S1_R1_E2.nii.gz
+            │   │   │   ├── Rest_S1_R1_E2.json
+            │   │   │   ├── Rest_S1_R1_E3.nii.gz
+            │   │   │   └── Rest_S1_R1_E3.json
+            │   │   └── run_2/              # Rest_S1_R2_E1...E3, each with JSON
+            │   └── session_2/
+            │       ├── run_1/              # Rest_S2_R1_E1...E3, each with JSON
+            │       └── run_2/              # Rest_S2_R2_E1...E3, each with JSON
+            ├── Motor/
+            │   ├── field_maps/             # fieldmaps acquired for Motor
+            │   └── session_1/
+            │       ├── run_1/              # Motor_S1_R1_E1...E3, each with JSON
+            │       └── run_2/              # Motor_S1_R2_E1...E3, each with JSON
+            └── WorkingMemory/
+                ├── field_maps/             # fieldmaps acquired for WorkingMemory
+                ├── session_1/
+                │   └── run_1/              # WorkingMemory_S1_R1_E1...E3 + JSON
+                └── session_2/
+                    └── run_1/              # WorkingMemory_S2_R1_E1...E3 + JSON
+</code></pre><p><code>E1...E3</code> in comments abbreviates separate E1, E2, and E3 files, each with its own JSON sidecar. For single-echo data, supply E1 only. Folder and prefix names are case-sensitive.</p><h3 id="what-validate-checks">What validate checks</h3><ul><li>At least one <code>anat/unprocessed/T1w/T1w*.nii.gz</code>; T2w is optional.</li><li>Numeric <code>session_&lt;N&gt;/run_&lt;N&gt;</code> folders and filenames matching the configured prefix, session, run, and echo indices.</li><li>A JSON sidecar for every echo, with matching, continuous echo indices from E1.</li><li><code>EchoTime</code>, <code>RepetitionTime</code>, and <code>SliceTiming</code> metadata; readout and phase-encoding metadata when using fieldmap correction.</li><li>Matching timepoint counts across echoes when FSL is available, plus the timepoint requirement for a numeric tedana PCA component count.</li><li>Paired AP/PA fieldmaps and JSON files for the TOPUP layout shown above.</li></ul><p>SBRefs can also be supplied; coregistration can create a fallback when absent. Other distortion-correction strategies have different input requirements; see <a href="https://github.com/cjl2007/pfm-mefmri/blob/main/docs/setup-and-inputs.md#expected-input-layout">the setup guide</a>.</p><p>For these dataset names, the corresponding selection is:</p><div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb2-1" title="1"><span class="va">FUNC_DIRNAME=(</span><span class="st">&quot;rest&quot;</span> <span class="st">&quot;Motor&quot;</span> <span class="st">&quot;WorkingMemory&quot;</span><span class="va">)</span></a>
+<a class="sourceLine" id="cb2-2" title="2"><span class="va">FUNC_FILE_PREFIX=(</span><span class="st">&quot;Rest&quot;</span> <span class="st">&quot;Motor&quot;</span> <span class="st">&quot;WorkingMemory&quot;</span><span class="va">)</span></a>
+<a class="sourceLine" id="cb2-3" title="3"><span class="va">PFM_INPUT_TASKS=(</span><span class="st">&quot;rest&quot;</span><span class="va">)</span></a></code></pre></div><p>This processes all three datasets and selects resting-state data for PFM. Start a fresh run from <code>validate</code> to check the staged inputs.</p><h2 id="after-processing">After processing</h2><p>Selected example outputs for an ME-ICA branch and a 0.3 mm FD threshold:</p><pre class="text"><code>SUB001/
+├── anat/
+│   ├── unprocessed/                        # staged anatomical inputs
+│   ├── T1w/
+│   │   ├── T1w_acpc_dc_restore_brain.nii.gz
+│   │   └── fsaverage_LR32k/                 # individual surfaces
+│   └── MNINonLinear/                       # atlas-space anatomy / transforms
+├── func/
+│   ├── unprocessed/                        # rest/, Motor/, WorkingMemory/
+│   ├── xfms/
+│   │   ├── rest/
+│   │   ├── Motor/
+│   │   └── WorkingMemory/
+│   ├── rest/
+│   │   ├── session_1/
+│   │   │   ├── run_1/
+│   │   │   │   ├── TE.txt
+│   │   │   │   ├── SBref.nii.gz
+│   │   │   │   ├── Rest_E1_acpc.nii.gz
+│   │   │   │   ├── Rest_OCME+MEICA.nii.gz
+│   │   │   │   └── Rest_OCME+MEICA.dtseries.nii
+│   │   │   └── run_2/
+│   │   ├── session_2/
+│   │   │   ├── run_1/
+│   │   │   └── run_2/
+│   │   ├── field_maps/
+│   │   ├── ConcatenatedCiftis/
+│   │   │   ├── Rest_OCME+MEICA_Concatenated.dtseries.nii
+│   │   │   ├── Rest_OCME+MEICA_Concatenated+FDlt0p3.dtseries.nii
+│   │   │   ├── FD.txt
+│   │   │   ├── ScanInfo.json
+│   │   │   ├── ScanIdx.mat
+│   │   │   └── ScanIdx_Censored.mat
+│   │   └── QC/                             # Coreg/, Fieldmaps/, MotionGrayPlots/,
+│   │                                       # NSI/, CrawlingSeedFC/, RunMetadata/
+│   ├── Motor/
+│   │   ├── session_1/
+│   │   │   ├── run_1/                      # Motor_OCME+MEICA.dtseries.nii
+│   │   │   └── run_2/
+│   │   ├── field_maps/
+│   │   ├── ConcatenatedCiftis/              # Motor_... + scan/frame metadata
+│   │   └── QC/
+│   └── WorkingMemory/
+│       ├── session_1/
+│       │   └── run_1/                      # WorkingMemory_OCME+MEICA.dtseries.nii
+│       ├── session_2/
+│       │   └── run_1/
+│       ├── field_maps/
+│       ├── ConcatenatedCiftis/              # WorkingMemory_... + metadata
+│       └── QC/
+└── pfm/                                    # selected PFM input datasets
+    ├── dataset.json
+    ├── ConcatenatedCiftis/
+    │   ├── PFM_Combined_Concatenated+FDlt0p3.dtseries.nii
+    │   ├── PFMPrepSummary.json
+    │   ├── ScanInfo.json
+    │   └── ScanIdx_Censored.mat
+    └── RidgePFM/                           # when RidgePFM is enabled
+        ├── RidgePFM_VTX.dlabel.nii
+        ├── RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
+        └── RidgePFM_VTX.L.border
+</code></pre><p>Preprocessing suffixes and optional products depend on the configuration. Run and session indices remain in the folder structure; processed filenames use the dataset prefix. <code>ScanInfo.json</code> and <code>ScanIdx_Censored.mat</code> retain the run/session identities associated with the concatenated and retained frames.</p><p>Each dataset has its own functional derivatives and QC. The shared subject-level <code>pfm/</code> folder records the selected PFM inputs in <code>dataset.json</code> and stores the enabled RidgePFM and/or Infomap results. Existing older results are not relocated.</p><p><a href="index.html#data-organization">Back to README</a></p>
+</main><script>window.addEventListener('message',event=>{const d=event.data;if(!d||d.type!=='ridgepfm:resize'||!Number.isFinite(d.height))return;for(const frame of document.querySelectorAll('iframe'))if(frame.contentWindow===event.source)frame.style.height=Math.min(2200,Math.max(200,d.height))+'px';});window.addEventListener('load',()=>{document.documentElement.dataset.previewValidation=JSON.stringify({images:document.images.length,broken:Array.from(document.images).filter(i=>!i.complete||i.naturalWidth===0).map(i=>i.src)});});</script></body></html>
