@@ -3,34 +3,33 @@
 # Edit all installation/study paths. See docs/tans-integration.md here and the
 # full configuration reference in the separate pfm-tans repository.
 
-TANS_ENABLE=0 # Enable only after configuring the YAML and settings below.
-TANS_CODE_ROOT="" # required: /path/to/pfm-tans/pipeline
-TANS_CONFIG_FILE="" # required: absolute path to your edited study YAML
-TANS_PYTHON="python3" # must provide SimNIBS and pfm-tans dependencies
+TANS_ENABLE=1
+TANS_CODE_ROOT="/path/to/pfm-tans/pipeline"
+TANS_CONFIG_FILE="/path/to/MyStudy/config/tans.yaml"
+TANS_PYTHON="/path/to/SimNIBS-4.5/simnibs_env/bin/python"
 TANS_OUTPUT_DIRNAME="tans"  # One folder name under SubjectDir; no slash.
-TANS_PFM_DIR=""            # Default: func/<FUNC_DIRNAME>/PFM/RidgePFM.
+TANS_PFM_DIR=""            # Default: <SubjectDir>/pfm/RidgePFM; legacy locations remain readable.
 TANS_WORKERS=6
 
-TANS_TARGET_NETWORK="" # select a network name from your input metadata
+TANS_TARGET_NETWORK="" # Set the network label for your project.
 TANS_TARGET_SEARCH_SPACE="glasser_predefined_plus_subject_specific_mfg"
 TANS_COARSE_GRID_DENSITY=0.85
 TANS_INCLUDE_SM_HAND_CALIBRATION=1
 TANS_ROBUSTNESS_ENABLE=1    # 0 selects nominal fine winner; robustness not evaluated.
 
-# Set actual hardware and calibration identities in the study YAML.
-# Empty shell overrides retain those YAML choices.
-TANS_SM_HAND_COIL_MODEL=""
-TANS_TREATMENT_COIL_MODEL=""
+# Example hardware: verify against your physical setup, including sibling STL.
+TANS_SM_HAND_COIL_MODEL="/path/to/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_C-B60.ccd"
+TANS_TREATMENT_COIL_MODEL="/path/to/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd"
 TANS_CALIBRATION_REGISTRY=""  # Default: bundled registry.
-TANS_SM_HAND_DIDT_CALIBRATION=""
-TANS_TREATMENT_DIDT_CALIBRATION=""
+TANS_SM_HAND_DIDT_CALIBRATION="magventure_x100_c-b60_biphasic_normal"
+TANS_TREATMENT_DIDT_CALIBRATION="magventure_x100_cool-b65_biphasic_normal"
 TANS_ALLOW_SIMILAR_COIL_CALIBRATION=0
 TANS_CALIBRATION_SUBSTITUTION_JUSTIFICATION=""
 TANS_MAXIMUM_TREATMENT_RMT_RATIO=1.20  # Explicitly empty disables the upward bound.
 
 # Supported magnitude-equivalent coils only; review before changing hardware.
-TANS_HANDLE_ORIENTATION_PREFERENCE="as_simulated"
-TANS_COIL_180_DEGREE_MAGNITUDE_EQUIVALENT=0
+TANS_HANDLE_ORIENTATION_PREFERENCE="posterior_inferior"
+TANS_COIL_180_DEGREE_MAGNITUDE_EQUIVALENT=1
 
 TANS_START_FROM="headmodel"
 TANS_STOP_AFTER="reports"

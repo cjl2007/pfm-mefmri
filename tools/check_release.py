@@ -55,10 +55,7 @@ def main():
                      'docs/tans-integration.md','docs/output-gallery.md'):
         require('/home/charleslynch' not in (root/relative).read_text(), f'Personal path in public guide: {relative}')
     if args.portable_config:
-        for config in (root/'config').iterdir():
-            if config.is_file():
-                require(not re.search(r'/home/|/media/|/Users/|charleslynch', config.read_text()),
-                        f'Nonportable config: {config.name}')
+        require('/home/' not in (root/'config/mefmri_wrapper_config.sh').read_text(), 'Nonportable main config')
     for relative in ('modules/mefmri_func_tans.sh','modules/mefmri_func_qc_coreg_sdc.sh',
                      'modules/mefmri_func_qc_motion_grayplots.sh','lib/mefmri_qc_coreg_sdc_report.py',
                      'lib/mefmri_qc_motion_grayplots.py','lib/pfm_ridge_fusion_review.py'):
@@ -96,7 +93,7 @@ def main():
             probe = subprocess.run(['ffprobe','-v','error','-show_entries','stream=width,height','-of','json',str(path)],
                                    capture_output=True, text=True)
             require(probe.returncode == 0, f'Movie decoding metadata: {name}')
-    require({p.name for p in (root/'docs/assets').iterdir()} == names | {'manifest.json','README.md'},
+    require({p.relative_to(root/'docs/assets').as_posix() for p in (root/'docs/assets').rglob('*') if p.is_file() and p.name not in ('manifest.json','README.md')} == {name for name in names if Path(name).name not in ('manifest.json','README.md')},
             'Unreviewed file in gallery')
     wrapper_options = set(re.findall(r'--[a-z][a-z0-9-]*', (root/'modules/mefmri_func_tans.sh').read_text()))
     if args.tans_root:

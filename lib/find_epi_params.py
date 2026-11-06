@@ -5,7 +5,8 @@ Creates run-level metadata sidecars used by coreg/headmotion:
   - TE.txt, TR.txt, EffectiveEchoSpacing.txt, SliceTiming.txt, PE.txt
 Also updates:
   - func/<FuncName>/QC/Validation/AllTEs.txt, func/<FuncName>/QC/Validation/AllTRs.txt
-  - func/xfms/<FuncName>/EffectiveEchoSpacing.txt (when StartSession == 1)
+  - func/xfms/<active-transform-namespace>/EffectiveEchoSpacing.txt
+    (FUNC_XFMS_DIRNAME or --xfms-dirname; defaults to FuncName)
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 from typing import List
+from validate_slice_timing import nifti_shape, validate_metadata
 
 
 def run(cmd: List[str]) -> str:
@@ -117,29 +119,19 @@ def phase_to_pedir(phase: str) -> str:
     return "-y" if phase == "j-" else "y"
 
 
-def build_slice_timing(slice_times: List[float], mb_factor: int) -> List[float]:
-    # Replicate MATLAB logic:
-    # 1) Use first N unique slice times from the provided list
-    # 2) sort to get slice order
-    # 3) choose middle slice as reference (MATLAB round)
-    n_unique = len(sorted(set(slice_times)))
-    base = slice_times[:n_unique]
-    # 1-based order indices like MATLAB sort output.
-    order_pairs = sorted(enumerate(base, start=1), key=lambda p: p[1])
-    slice_order = [idx for idx, _ in order_pairs]
-    n = len(slice_order)
+def build_slice_timing(slice_times: List[float], mb_factor=None) -> List[float]:
+    # Preserve the legacy rank-based fractional-TR shifts and middle acquisition
+    # group reference, but map EVERY slice, rather than truncating and tiling.
+    # BIDS SliceTiming already describes all slices, including simultaneous MB
+    # slices. MB metadata is unnecessary and can be absent in Siemens XA JSON.
+    # mb_factor remains accepted only for compatibility with callers.
+    if not slice_times or any(not math.isfinite(t) for t in slice_times):
+        raise ValueError('SliceTiming must be nonempty and finite')
+    unique = sorted(set(slice_times))
+    ranks = {t: i + 1 for i, t in enumerate(unique)}
+    n = len(unique)
     ref_pos = int(math.floor(n / 2 + 0.5))
-    ref_slice = slice_order[ref_pos - 1]
-
-    timing = []
-    for i in range(1, n + 1):
-        pos_ref = slice_order.index(ref_slice) + 1
-        pos_i = slice_order.index(i) + 1
-        timing.append((pos_ref - pos_i) / n)
-
-    if mb_factor > 1:
-        timing = timing * mb_factor
-    return timing
+    return [(ref_pos - ranks[t]) / n for t in slice_times]
 
 
 def main() -> None:
@@ -147,6 +139,8 @@ def main() -> None:
     ap.add_argument("--subdir", required=True)
     ap.add_argument("--func-name", default="rest")
     ap.add_argument("--func-prefix", default="Rest")
+    ap.add_argument("--xfms-dirname", default=os.environ.get("FUNC_XFMS_DIRNAME", ""),
+                    help="Transform namespace; defaults to FUNC_XFMS_DIRNAME, then func-name")
     ap.add_argument("--start-session", type=int, default=1)
     ap.add_argument("--no-fieldmap-mode", action="store_true")
     ap.add_argument("--qc-dirname", default=os.environ.get("QC_OUTPUT_DIRNAME", "QC"))
@@ -160,7 +154,19 @@ def main() -> None:
     in_root = subdir / "func" / "unprocessed" / func_name
     out_root = subdir / "func" / func_name
     qa_dir = subdir / "func" / func_name / args.qc_dirname / "Validation"
-    xfms_dir = subdir / "func" / "xfms" / func_name
+    xfms_name = args.xfms_dirname or func_name
+    if args.xfms_dirname and (not re.fullmatch(r'[A-Za-z0-9_.-]+', xfms_name) or xfms_name in ('.', '..')):
+        ap.error('Invalid transform namespace')
+    xfms_dir = subdir / "func" / "xfms" / xfms_name
+
+    # Validate all selected timing arrays against native images BEFORE removing
+    # any existing processed run directories. Missing MB is not an error.
+    mag_json_re = re.compile(rf"^{re.escape(func_prefix)}_S\d+_R\d+_E\d+\.json$")
+    for jf in in_root.glob('session_*/run_*/*.json'):
+        if not mag_json_re.match(jf.name) or int(jf.parent.parent.name.split('_')[1]) < start_session:
+            continue
+        image = jf.with_suffix('.nii.gz')
+        validate_metadata(json.loads(jf.read_text()), nifti_shape(image)[2], str(jf))
 
     if start_session == 1 and out_root.exists():
         # Do not delete the whole task directory: fieldmaps now live under
@@ -211,8 +217,7 @@ def main() -> None:
 
             first_j = json.loads(json_files[0].read_text())
             slice_times = [float(x) for x in first_j["SliceTiming"]]
-            mb = int(first_j.get("MultibandAccelerationFactor", 1))
-            slice_timing = build_slice_timing(slice_times, mb)
+            slice_timing = build_slice_timing(slice_times)
             phase = str(last_j.get("PhaseEncodingDirection", ""))
             pedir = phase_to_pedir(phase)
 
@@ -223,14 +228,28 @@ def main() -> None:
             elif not args.no_fieldmap_mode:
                 raise KeyError("EffectiveEchoSpacing")
             (out_run / "SliceTiming.txt").write_text("\n".join(fmt_num(v) for v in slice_timing) + "\n")
+            (out_run / "SliceTiming_provenance.json").write_text(json.dumps({
+                'source_json': str(json_files[0]),
+                'source_field': 'SliceTiming',
+                'source_slice_count': len(slice_times),
+                'output_slice_count': len(slice_timing),
+                'unique_acquisition_groups': len(set(slice_times)),
+                'reported_multiband_factor': first_j.get('MultibandAccelerationFactor'),
+                'multiband_factor_used_for_timing': False,
+                'convention': 'legacy acquisition-rank fractional-TR shift; middle group reference',
+                'method': 'full_slice_array_rank_mapping_v2',
+            }, indent=2) + '\n')
             (out_run / "PE.txt").write_text(pedir + "\n")
 
             te_lines.append(f"Session {s_idx} Run {r_idx}: " + " ".join(fmt_num(v) for v in te_vals))
             tr_lines.append(f"Session {s_idx} Run {r_idx}: {fmt_num(tr)}")
 
     mode_ees = Counter(all_ees).most_common(1)
-    if mode_ees and start_session == 1:
-        (xfms_dir / "EffectiveEchoSpacing.txt").write_text(fmt_num(mode_ees[0][0]) + "\n")
+    ees_file = xfms_dir / "EffectiveEchoSpacing.txt"
+    # Frozen incoming batches reserve a new namespace even when START_SESSION
+    # is greater than one. Populate it; preserve an existing resumed value.
+    if mode_ees and (start_session == 1 or not ees_file.exists()):
+        ees_file.write_text(fmt_num(mode_ees[0][0]) + "\n")
 
     all_te_file = qa_dir / "AllTEs.txt"
     all_tr_file = qa_dir / "AllTRs.txt"

@@ -26,9 +26,13 @@ case "$TANS_OUTPUT_DIRNAME" in
 esac
 TansOutputDir="${SubjectDir}/${TANS_OUTPUT_DIRNAME}"
 if [[ -z "${TANS_PFM_DIR:-}" ]]; then
-  TANS_PFM_DIR="${SubjectDir}/func/${FuncDirName}/PFM/RidgePFM"
-  if [[ ! -d "$TANS_PFM_DIR" && -d "${SubjectDir}/func/${FuncDirName}/PFM/RidgeFusion" ]]; then
-    TANS_PFM_DIR="${SubjectDir}/func/${FuncDirName}/PFM/RidgeFusion"
+  PFM_PARENT="${PFM_OUTDIR:-${SubjectDir}/pfm}"
+  if [[ ! -d "$PFM_PARENT" && -z "${PFM_OUTDIR:-}" && -d "${SubjectDir}/func/${FuncDirName}/PFM" ]]; then
+    PFM_PARENT="${SubjectDir}/func/${FuncDirName}/PFM"
+  fi
+  TANS_PFM_DIR="${PFM_PARENT}/RidgePFM"
+  if [[ ! -d "$TANS_PFM_DIR" && -d "${PFM_PARENT}/RidgeFusion" ]]; then
+    TANS_PFM_DIR="${PFM_PARENT}/RidgeFusion"
     echo "[tans] using existing RidgeFusion output; YAML input filenames must match that output."
   fi
 fi

@@ -1,15 +1,34 @@
 # PFM Outputs
 
-[See example maps and continuous representations](output-gallery.md#individual-network-representations).
+[See example maps and continuous representations](ridgepfm-taxonomy-explorer.html?raw=1).
 Network labels and weights can feed the [optional TANS module](tans-integration.md)
 after QC and explicit selection of the input maps and metadata.
 
-PFM runs after CIFTI concatenation and FD censoring. The default input is the
-final concatenated dtseries:
+## Choose rest-only or rest plus selected tasks
 
-```text
-func/<FUNC_DIRNAME>/ConcatenatedCiftis/<FuncPrefix>_<InputTag>_Concatenated+FDlt<FD>.dtseries.nii
+PFM input selection is separate from which functional tasks the pipeline processes.
+Use the task directory names configured in `FUNC_DIRNAME`:
+
+```bash
+# Rest only
+PFM_INPUT_TASKS=("rest")
+
+# Rest plus selected tasks (example names; these tasks must exist)
+PFM_INPUT_TASKS=("rest" "Motor" "WorkingMemory")
 ```
+
+The selected runs are prepared together for a single subject-level PFM analysis.
+The pipeline applies the configured per-run demeaning, variance normalization,
+and FD censoring, retaining task/session/run membership in the preparation
+metadata. Unselected tasks can still be processed without contributing to PFM.
+Task selection alone does not remove task-evoked responses; combining task data
+changes the data supporting the map and should be documented.
+
+Outputs are organized under `pfm/` at the subject root. Inspect
+`pfm/dataset.json` and the preparation summary to verify the selected
+inputs and retained duration. An explicit `PFM_INPUT_CIFTI` overrides automatic
+input construction; its task membership is not verified by this selection list.
+See [dataset organization](data-organization.md) for the complete directory layout.
 
 FD follows the historical `concatenate_scans.m` calculation independently for
 each run. For **TR < 2 seconds**, the six motion parameters receive a zero-phase,
@@ -48,15 +67,12 @@ Each strategy writes to its own subfolder under `PFM/`.
 
 ## RidgePFM
 
-### Taxonomies, confidence, stripes, and volume maps
+### Taxonomies, WTA, softmax, and volume maps
 
 ```bash
 PFM_RF_TAXONOMY="Lynch2024"  # Lynch2024 | Du2024 | Hermosillo2024 | Kong2019
 PFM_PRIORS_MAT=""            # empty: use the selected bundled taxonomy
 PFM_SUBCORT_PRIORS_NII=""
-PFM_RF_CONFIDENCE_ENABLE=1   # optional; default 0
-PFM_RF_CONFIDENCE_SCAN_IDX="" # auto-select aligned concatenation metadata
-PFM_RF_CONFIDENCE_FC_THRESHOLD=0.7
 PFM_RF_VOLUME_ENABLE=1       # optional; default 0
 PFM_RF_VOLUME_ANATOMICAL_TARGET="acpc" # acpc | native | custom
 PFM_RF_VOLUME_REFERENCE=""  # target grid; native defaults to anat/T1w/T1w.nii.gz
@@ -68,7 +84,7 @@ white and pial surfaces are defined. The `native` target then applies the saved
 ACPC-to-original transform and writes on the original `T1w.nii.gz` grid. A
 `custom` target requires both `PFM_RF_VOLUME_REFERENCE` and
 `PFM_RF_VOLUME_ACPC_TO_TARGET_XFM`. WTA output is a Workbench label volume with
-the taxonomy names and colors embedded; score and confidence outputs remain
+the taxonomy names and colors embedded; continuous-score outputs remain
 scalar 4D NIfTI files.
 
 The four prior sets live in `res0urces/PriorsPFM/<taxonomy>`. Lynch2024 and
@@ -80,48 +96,13 @@ taxonomy selection. To add subcortical spatial support with custom priors, suppl
 an explicitly matching custom volume prior; otherwise volume assignments use FC.
 Use a different `PFM_OUTDIR` for each taxonomy when retaining multiple analyses.
 
-Confidence testing maps each eligible session independently, combining its runs.
-Ten eligible sessions produce ten assignment maps. `ScanIdx.mat` must contain
-one `[session, run]` row per input frame. New concatenation writes both the full
-`ScanIdx.mat` and frame-aligned `ScanIdx_Censored.mat`; a legacy or custom CIFTI
-must be supplied with matching metadata. Sessions with fewer than
-`PFM_RF_REPEAT_MIN_FRAMES` (30) frames are excluded and recorded. At least four
-eligible sessions are required by the combined confidence/state workflow.
+Full-data winner-take-all labels identify the network with the largest fused
+score. `_FusedScoreSoftmax.dtseries.nii` contains a continuous weight for every
+network at each location. These softmax weights summarize competition among the
+fitted network scores; they are not calibrated probabilities of biological identity.
+`_TopFusedScoreWeight.dtseries.nii` records the weight of the winning label.
 
-The `Confidence/` directory contains:
-
-| Output suffix | Meaning |
-| --- | --- |
-| `_SessionAssignmentFrequency.dscalar.nii` | Per-network fraction of valid session assignments, 0–1 |
-| `_SessionAssignments.dlabel.nii` | Each session's WTA map |
-| `_FCReproducibility.dscalar.nii` | FC-profile correlation for each of three pooled session splits |
-| `_SplitAssignments.dlabel.nii` | The six pooled split assignments |
-| `_MinimumValidSplitSessions.dscalar.nii` | Minimum number of valid sessions across split sides |
-| `_AssignmentStates.dlabel.nii` | Four FC reproducibility × label stability states; zero is not estimable |
-| `_SplitLabelMembership.dscalar.nii` | Every network observed across the six split maps |
-| `_NetworkStripes.dlabel.nii` | Separate display map; stripes only for reproducible FC with competing labels |
-
-The default split plan uses three seeded, disjoint-within-pair session halves.
-The standalone confidence CLI also accepts an explicit `--split-plan`, including
-the validation study's three held-session folds. Split pairs reuse sessions and
-are not independent observations. Reproducible FC means the minimum of the three
-full cortical profile correlations is at least 0.7, after the same cortical local
-edge exclusion used for mapping. Same label means one nonzero label across all
-six maps. Each split side must also have at least two valid sessions at that
-grayordinate. This gives reproducible/same, reproducible/competing, lower/same, and
-lower/competing states. Only the second state receives stripes. Numeric membership
-maps retain alternatives that may not appear in a particular stripe. Stripe
-widths are display geometry, not assignment probabilities.
-
-Session frequencies measure empirical assignment consistency at the available
-session duration. They are separate from `TemplateFit_R2` and from the fused-score
-softmax; none is a calibrated probability of biological network membership.
-The full-data WTA remains the main output and is never replaced by stripes.
-The older run-level repeat and experimental areal-mixture workflows remain
-separate opt-in controls.
-
-Volume export writes WTA labels, fused-score weights, and (when enabled) session
-frequencies under `Volume/`. Workbench maps cortex using the subject's midthickness,
+Volume export writes WTA labels and fused-score softmax weights under `Volume/`. Workbench maps cortex using the subject's midthickness,
 white, and pial surfaces with `-ribbon-constrained`. Labels use categorical mapping;
 scalar maps use ribbon weights normalized by mapped valid-surface coverage, so a
 constant probability remains constant within covered cortex. Original CIFTI volume
@@ -359,6 +340,17 @@ PFM/Infomap/InfomapNetworkLabels_ManualAdjusted_ProbabilityConsensus.dscalar.nii
 ```
 
 ## Areal Parcellation
+
+The [network-map selector](ridgepfm-taxonomy-explorer.html?raw=1) includes an
+**Areal parcellation** checkbox. Each example taxonomy has its own FC-derived
+parcels, computed downstream of its vertex-wise WTA map with the existing areal
+stage (including its WTA cleanup). The toggle loads those precomputed results;
+it does not estimate new parcels in the browser. WTA fills summarize the
+surface-area-weighted majority network identity within each parcel; softmax
+fills show its surface-area-weighted mean network support. Selecting a different
+softmax network retains that taxonomy’s parcel geometry. These parcel summaries
+are not a second RidgePFM fit or calibrated identity probabilities.
+
 
 Enable with:
 

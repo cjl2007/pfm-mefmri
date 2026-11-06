@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1160" viewBox="0 0 1600 1160" stroke="none" role="img" aria-labelledby="title desc">
+<title id="title">pfm-mefmri data journey</title>
+<desc id="desc">HCP PreFreeSurfer, FreeSurfer, and PostFreeSurfer prepare individual anatomy. Distortion correction, Coreg and Headmotion, Denoise, Vol2Surf, and Concat process resting-state or task, single- or multi-echo data. Quality-control modules include registration, motion/physiology, expert-calibrated FC quality scores, and crawling-seed FC. Functional derivatives support PFM followed by TANS individualized TMS targeting, alongside task/connectivity analyses and longitudinal brain-behavior studies.</desc>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#71899a" /></marker><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#b3975b" /></marker></defs>
+<rect width="1600" height="1160" rx="18" fill="#f6f9fb" />
+<g font-family="Arial, Helvetica, sans-serif" fill="#253746">
+<text x="40" y="34" font-size="18" fill="#9b7e42" font-weight="700">ANATOMICAL STREAM · HCP PIPELINES</text>
+<rect x="40" y="58" width="480" height="190" rx="12" fill="#fcf8ed" stroke="#dfd3b5" stroke-width="1.4" />
+<text x="60" y="104" font-size="31" fill="#253746" font-weight="700">PreFreeSurfer</text>
+<text x="60" y="150" font-size="22" fill="#526476">T1w and optional T2w</text>
+<text x="60" y="186" font-size="22" fill="#526476">ACPC alignment and brain extraction</text>
+<text x="60" y="222" font-size="22" fill="#526476">Bias-field and distortion correction</text>
+<rect x="560" y="58" width="480" height="190" rx="12" fill="#fcf8ed" stroke="#dfd3b5" stroke-width="1.4" />
+<text x="580" y="104" font-size="31" fill="#253746" font-weight="700">FreeSurfer</text>
+<text x="580" y="150" font-size="22" fill="#526476">Cortical reconstruction</text>
+<text x="580" y="186" font-size="22" fill="#526476">Tissue segmentation</text>
+<text x="580" y="222" font-size="22" fill="#526476">White and pial surfaces</text>
+<rect x="1080" y="58" width="480" height="190" rx="12" fill="#fcf8ed" stroke="#dfd3b5" stroke-width="1.4" />
+<text x="1100" y="104" font-size="31" fill="#253746" font-weight="700">PostFreeSurfer</text>
+<text x="1100" y="150" font-size="22" fill="#526476">Surface registration and resampling</text>
+<text x="1100" y="186" font-size="22" fill="#526476">fs_LR surface meshes</text>
+<text x="1100" y="222" font-size="22" fill="#526476">Anatomical spaces and volume grids</text>
+<path d="M526 153H553" fill="none" stroke="#b3975b" stroke-width="2.5" marker-end="url(#b)" />
+<path d="M1046 153H1073" fill="none" stroke="#b3975b" stroke-width="2.5" marker-end="url(#b)" />
+<path d="M280 249V300H490V409" fill="none" stroke="#b3975b" stroke-width="2.5" marker-end="url(#b)" />
+<path d="M1320 249V300H1110V409" fill="none" stroke="#b3975b" stroke-width="2.5" marker-end="url(#b)" />
+<text x="40" y="328" font-size="18" fill="#46748f" font-weight="700">FUNCTIONAL STREAM</text>
+<text x="40" y="360" font-size="21" fill="#66788a">Rest or task fMRI</text>
+<text x="40" y="390" font-size="21" fill="#66788a">Multi-echo or single-echo</text>
+<rect x="40" y="415" width="280" height="220" rx="12" fill="#edf4fa" stroke="#c7d7e4" stroke-width="1.4" />
+<text x="60" y="461" font-size="24" fill="#253746" font-weight="700">Distortion correction</text>
+<text x="60" y="507" font-size="21" fill="#526476">TOPUP / direct B0</text>
+<text x="60" y="543" font-size="21" fill="#526476">MEDIC / warpkit</text>
+<text x="60" y="579" font-size="20" fill="#526476">Explicit no-fieldmap mode</text>
+<rect x="350" y="415" width="280" height="220" rx="12" fill="#edf4fa" stroke="#c7d7e4" stroke-width="1.4" />
+<text x="370" y="461" font-size="25" fill="#253746" font-weight="700">Coreg / Headmotion</text>
+<text x="370" y="507" font-size="21" fill="#526476">Alignment to anatomy</text>
+<text x="370" y="543" font-size="18" fill="#526476">Within-participant refinement</text>
+<text x="370" y="579" font-size="20" fill="#526476">Motion-corrected run data</text>
+<rect x="660" y="415" width="280" height="220" rx="12" fill="#edf4fa" stroke="#c7d7e4" stroke-width="1.4" />
+<text x="680" y="461" font-size="26" fill="#253746" font-weight="700">Denoise</text>
+<text x="680" y="507" font-size="21" fill="#526476">ME-ICA / tedana</text>
+<text x="680" y="543" font-size="21" fill="#526476">aCompCor</text>
+<text x="680" y="579" font-size="21" fill="#526476">ICA-AROMA</text>
+<rect x="970" y="415" width="280" height="220" rx="12" fill="#edf4fa" stroke="#c7d7e4" stroke-width="1.4" />
+<text x="990" y="461" font-size="26" fill="#253746" font-weight="700">Vol2Surf</text>
+<text x="990" y="507" font-size="18" fill="#526476">Ribbon-constrained mapping</text>
+<text x="990" y="543" font-size="21" fill="#526476">Surface + volume CIFTIs</text>
+<text x="990" y="579" font-size="21" fill="#526476">Native space or MNI</text>
+<rect x="1280" y="415" width="280" height="220" rx="12" fill="#edf4fa" stroke="#c7d7e4" stroke-width="1.4" />
+<text x="1300" y="461" font-size="26" fill="#253746" font-weight="700">Concat</text>
+<text x="1300" y="507" font-size="19" fill="#526476">Run / session concatenation</text>
+<text x="1300" y="543" font-size="21" fill="#526476">FD censoring</text>
+<text x="1300" y="579" font-size="21" fill="#526476">Visit / epoch selection</text>
+<path d="M324 525H343" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M634 525H653" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M944 525H963" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M1254 525H1273" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M490 636V699" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M800 636V699" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M1420 636V674H1255V699" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<g fill="#edf6f4" stroke="#c8dcd7" stroke-width="1.4"><rect x="40" y="705" width="880" height="170" rx="12" /><rect x="950" y="705" width="610" height="170" rx="12" /></g>
+<text x="62" y="750" font-size="27" fill="#253746" font-weight="700">Objective quality assessment</text>
+<text x="62" y="785" font-size="21" fill="#526476">Coregistration / SDC · motion · physiology · grayplots</text>
+<text x="62" y="819" font-size="21" fill="#526476">Expert-calibrated FC quality scores (Lynch et al., 2026)</text>
+<text x="62" y="853" font-size="21" fill="#526476">Crawling-seed FC movies</text>
+<text x="972" y="750" font-size="27" fill="#253746" font-weight="700">CIFTIs + scan metadata</text>
+<text x="972" y="795" font-size="22" fill="#526476">Denoised functional time series</text>
+<text x="972" y="837" font-size="22" fill="#526476">Run / session identifiers and QC</text>
+<path d="M926 790H944" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M1255 877V908H280V934" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<path d="M1255 877V908H1320V934" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+<rect x="40" y="940" width="480" height="190" rx="12" fill="white" stroke="#d2dae0" stroke-width="1.4" />
+<text x="60" y="986" font-size="29" fill="#253746" font-weight="700">PFM</text>
+<text x="60" y="1032" font-size="22" fill="#526476">Individual network organization</text>
+<text x="60" y="1068" font-size="22" fill="#526476">Infomap / RidgePFM</text>
+<text x="60" y="1104" font-size="22" fill="#526476">Data-driven or prior-assisted maps</text>
+<rect x="560" y="940" width="480" height="190" rx="12" fill="white" stroke="#d2dae0" stroke-width="1.4" />
+<text x="580" y="986" font-size="29" fill="#253746" font-weight="700">TANS</text>
+<text x="580" y="1032" font-size="22" fill="#526476">Individualized TMS targeting</text>
+<text x="580" y="1068" font-size="22" fill="#526476">Coil placement and dose review</text>
+<text x="580" y="1104" font-size="22" fill="#526476">Neuronavigation export</text>
+<rect x="1080" y="940" width="480" height="190" rx="12" fill="white" stroke="#d2dae0" stroke-width="1.4" />
+<text x="1100" y="986" font-size="27" fill="#253746" font-weight="700">Other individual-focused analyses</text>
+<text x="1100" y="1032" font-size="22" fill="#526476">Task activation and connectivity</text>
+<text x="1100" y="1068" font-size="22" fill="#526476">Longitudinal brain–behavior studies</text>
+<text x="1100" y="1104" font-size="22" fill="#526476">Within-person change over time</text>
+<path d="M526 1035H553" fill="none" stroke="#71899a" stroke-width="2.5" marker-end="url(#a)" />
+</g></svg>

@@ -1,14 +1,22 @@
-# TANS integration
+# Individualized TMS targeting
 
-TANS is an optional final module for individualized TMS targeting. The separate
-[pfm-tans repository](https://github.com/cjl2007/pfm-tans) owns head-model
-preparation, target preparation, coil search, dose reports, and neuronavigation
-exports. PFM-mefmri supplies the reviewed anatomy and functional-network maps.
+[PFM-TANS](https://github.com/cjl2007/pfm-tans) can follow processing and network
+mapping as an optional final module. It uses the participant’s anatomy and
+functional maps to model coil placement and review target and off-target exposure.
 
-- [PFM-mefmri integration guide](../tans-integration.md)
-- [Shell configuration example](../../config/tans_module.example.sh)
-- [Study YAML example](../../config/tans_study.example.yaml)
-- [RidgePFM output contract](../pfm-outputs.md)
-- [pfm-tans GitHub](https://github.com/cjl2007/pfm-tans)
+**Anatomy + network maps → head model → target preparation → coil search →
+dose review → neuronavigation export.**
 
-TANS remains disabled by default and is installed separately.
+[Basic workflow and setup](https://github.com/cjl2007/pfm-tans#get-started) ·
+[PFM-mefmri module configuration](../tans-integration.md)
+
+## Coil-search movie
+
+[![PFM-TANS Salience example: coil position, orientation, modeled electric field, and saved search scores](../assets/tans-search-replay.gif)](../assets/tans-search-replay.mp4)
+
+[Watch the full search movie](../assets/tans-search-replay.mp4).
+This published Salience example replays saved simulations and ends at the selected
+fine-search pose. Playback speed is independent of computation time.
+[More examples and dose-review workflow](https://github.com/cjl2007/pfm-tans).
+
+[Back to pfm-mefmri](../../README.md)

@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 # MEDIC-aware slice-time/headmotion/anatomical resampling.
 #
-# Conservative implementation:
-#   1) Use warpkit's wk-apply-warp directly for frame-wise MEDIC unwarping.
-#   2) Estimate motion on MEDIC-unwarped echo-averaged data.
-#   3) Apply motion + unwarped-SBref-to-anatomical warp in the normal FSL pass.
-#
-# This intentionally avoids pretending that FSL/warpkit warp-field conventions
-# are validated for one-step composition before we have a phantom/known-answer
-# test. It preserves warpkit MEDIC behavior exactly for the distortion step.
+# Unwarped images are estimation-only scouts. Final echoes are sampled from
+# native acquisition data by the joint spatial/temporal helper: no unwarped
+# intensity image becomes the input to a second spatial resampling.
 
 set -euo pipefail
 shopt -s nullglob
@@ -138,6 +133,8 @@ mapfile -t AllScans < <(find -L "$Subdir/func/$FuncDirName" -mindepth 2 -maxdept
 [[ "${#AllScans[@]}" -gt 0 ]] || die "no processed run directories found under $Subdir/func/$FuncDirName"
 
 func() {
+  # GNU parallel starts a new shell; propagate scientific-command failures.
+  set -euo pipefail
   local MEDIR_IN="$1"
   local AtlasTemplate_IN="$2"
   local Subdir_IN="$3"
@@ -147,6 +144,7 @@ func() {
   local ApplyN4Bias="${APPLY_N4_BIAS:-0}"
   local KeepMCF="${HEADMOTION_KEEP_MCF:-0}"
   local ReorientFuncToStd="${FUNC_REORIENT_TO_STD:-1}"
+  local ResamplePython="${MEDIC_RESAMPLE_PYTHON:-${PIPELINE_PYTHON:-python3}}"
   local ProcDir="$Subdir_IN/func/$FuncDirName$ScanRel"
   local UnprocDir="$Subdir_IN/func/unprocessed/$FuncDirName$ScanRel"
   local BrainMask="$Subdir_IN/func/xfms/$FuncXfmsDir/T1w_acpc_brain_func_mask.nii.gz"
@@ -179,9 +177,36 @@ func() {
   [[ -f "$Intermediate2ACPCWarp" ]] || { echo "[ERROR] medic-headmotion missing warp $Intermediate2ACPCWarp" >&2; return 1; }
   [[ -f "$BrainMask" ]] || { echo "[ERROR] medic-headmotion missing brain mask $BrainMask" >&2; return 1; }
 
+  # Reject truncated/stale timing before removing any previous outputs.
+  local timing_refs=("$UnprocDir"/"${FuncFilePrefix}"_S*_R*_E1.nii.gz)
+  [[ ${#timing_refs[@]} -eq 1 ]] || { echo "[ERROR] Cannot resolve E1 for timing validation: $UnprocDir" >&2; return 1; }
+  "${PIPELINE_PYTHON:-python3}" "$MEDIR_IN/lib/validate_slice_timing.py" --timing "$ProcDir/SliceTiming.txt" --image "${timing_refs[0]}" || return 1
+
+  # Validate every native echo and field before deleting work or touching final
+  source "$MEDIR_IN/lib/mefmri_refinement_consumer.sh"
+  refinement_select "$MEDIR_IN" "$ProcDir" || return 1
+  # outputs. The Python helper also revalidates immediately before resampling.
+  local NativeEchoes=() NativeMatch=() EchoCount=0 EchoTE PreflightDiscard=0
+  for EchoTE in $(cat "$ProcDir/TE.txt"); do
+    EchoCount=$((EchoCount + 1))
+    NativeMatch=("$UnprocDir"/"${FuncFilePrefix}"*_E"$EchoCount".nii.gz)
+    [[ ${#NativeMatch[@]} -eq 1 ]] || { echo "[ERROR] MEDIC native echo $EchoCount is missing or ambiguous" >&2; return 1; }
+    NativeEchoes+=("${NativeMatch[0]}")
+  done
+  [[ "$EchoCount" -gt 0 ]] || { echo "[ERROR] No MEDIC echoes listed in TE.txt" >&2; return 1; }
+  [[ ! -f "$ProcDir/rmVols.txt" ]] || PreflightDiscard="$(cat "$ProcDir/rmVols.txt")"
+  local ReorientArgs=()
+  [[ "$ReorientFuncToStd" != "1" ]] || ReorientArgs+=(--reorient)
+  "$ResamplePython" "$MEDIR_IN/lib/mefmri_medic_resample.py" \
+    --inputs "${NativeEchoes[@]}" --dmap "$DMap" --axis "$PED" \
+    --timing "$ProcDir/SliceTiming.txt" --base-warp "$Intermediate2ACPCWarp" \
+    --reference "$AtlasTemplate_IN" --mask "$BrainMask" --tr "$(cat "$ProcDir/TR.txt")" \
+    --discard "$PreflightDiscard" --output-dir "$ProcDir" --prefix "$FuncFilePrefix" \
+    "${ReorientArgs[@]}" --preflight-only || return 1
+
   rm -rf "$ProcDir/MCF" "$ProcDir/Rest_AVG_mcf.mat" "$ProcDir/Rest_AVG_mcf.mat+" "$ProcDir/vols"
   rm -f "$ProcDir"/Rest_AVG_distorted.nii.gz "$ProcDir"/Rest_AVG_medic.nii.gz "$ProcDir"/Rest_AVG_mcf.nii.gz "$ProcDir"/Rest_E1_medic.nii.gz
-  rm -f "$ProcDir"/"${FuncFilePrefix}"_E*_distorted.nii.gz "$ProcDir"/"${FuncFilePrefix}"_E*_medic.nii.gz "$ProcDir"/"${FuncFilePrefix}"_E*_acpc.nii.gz
+  rm -f "$ProcDir"/"${FuncFilePrefix}"_E*_distorted.nii.gz "$ProcDir"/"${FuncFilePrefix}"_E*_medic.nii.gz
   mkdir -p "$ProcDir/vols"
 
   reorient_to_std_inplace() {
@@ -289,13 +314,18 @@ func() {
     cp "${raw_echo[0]}" "$echo_copy"
     reorient_to_std_inplace "$echo_copy"
 
+    # Warpkit accesses one frame at a time. Avoid repeatedly decompressing a
+    # whole .nii.gz stream; this is a storage conversion, not interpolation.
+    local uncompressed_echo="$EchoWorkDir/${FuncFilePrefix}_E${n_te}_distorted_uncompressed.nii"
+    fslchfiletype NIFTI "$echo_copy" "$uncompressed_echo"
+
     "$APPLY_WARP_BIN" \
-      --input "$echo_copy" \
+      --input "$uncompressed_echo" \
       --transform "$DMap" \
       --transform-type map \
       --phase-encoding-axis "$PED" \
       --output "$EchoWorkDir/${FuncFilePrefix}_E${n_te}_medic.nii.gz"
-    rm -f "$echo_copy"
+    rm -f "$echo_copy" "$uncompressed_echo"
 
     local include=1
     if [[ "$SBREF_MAX_TE_MS" != "none" ]]; then
@@ -329,37 +359,20 @@ func() {
   mcflirt -dof "$DOF_IN" -stages 3 -plots -in "$ProcDir/Rest_AVG_medic.nii.gz" -r "$UnwarpedSBRef" -out "$ProcDir/MCF"
   rm -f "$ProcDir/MCF.nii.gz"
 
+  "${PIPELINE_PYTHON:-python3}" "$MEDIR_IN/lib/validate_slice_timing.py" --timing "$ProcDir/SliceTiming.txt" --image "$ProcDir/Rest_AVG_medic.nii.gz" || return 1
   slicetimer -i "$ProcDir/Rest_AVG_medic.nii.gz" -o "$ProcDir/Rest_AVG_medic.nii.gz" -r "$tr" --tcustom="$ProcDir/SliceTiming.txt"
   mcflirt -dof "$DOF_IN" -mats -stages 3 -in "$ProcDir/Rest_AVG_medic.nii.gz" -r "$IntermediateCoregTarget" -out "$ProcDir/Rest_AVG_mcf"
   rm -f "$ProcDir/Rest_AVG_distorted.nii.gz" "$ProcDir/Rest_AVG_medic.nii.gz"
 
-  for e in $(seq 1 1 "$n_te"); do
-    [[ -f "$EchoWorkDir/${FuncFilePrefix}_E${e}_medic.nii.gz" ]] || { echo "[ERROR] medic-headmotion missing unwarped echo $e in $EchoWorkDir" >&2; return 1; }
-    cp "$EchoWorkDir/${FuncFilePrefix}_E${e}_medic.nii.gz" "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz"
-
-    if [[ "$rmVols" -gt 0 ]]; then
-      fslroi "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz" "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz" "$rmVols" $((nVols - rmVols))
-    fi
-
-    slicetimer -i "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz" --tcustom="$ProcDir/SliceTiming.txt" -r "$tr" -o "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz"
-    fslsplit "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz" "$ProcDir/Rest_AVG_mcf.mat/vol_" -t
-
-    local mats images
-    mats=("$ProcDir"/Rest_AVG_mcf.mat/MAT_*)
-    images=("$ProcDir"/Rest_AVG_mcf.mat/vol_*.nii.gz)
-    if [[ "${#images[@]}" -ne "${#mats[@]}" ]]; then
-      echo "[ERROR] medic-headmotion applywarp pairing mismatch for $ScanRel echo $e: images=${#images[@]} mats=${#mats[@]}" >&2
-      return 1
-    fi
-
-    for (( i=0; i<${#images[@]}; i++ )); do
-      applywarp --interp=spline --in="${images[$i]}" --premat="${mats[$i]}" --warp="$Intermediate2ACPCWarp" --out="${images[$i]}" --ref="$AtlasTemplate_IN"
-    done
-
-    fslmerge -t "$ProcDir/${FuncFilePrefix}_E${e}_acpc.nii.gz" "$ProcDir"/Rest_AVG_mcf.mat/*.nii.gz
-    fslmaths "$ProcDir/${FuncFilePrefix}_E${e}_acpc.nii.gz" -mas "$BrainMask" "$ProcDir/${FuncFilePrefix}_E${e}_acpc.nii.gz"
-    rm -f "$ProcDir"/Rest_AVG_mcf.mat/*.nii.gz "$ProcDir/${FuncFilePrefix}_E${e}_medic.nii.gz"
-  done
+  # Final BOLD never uses EchoWorkDir/*_medic.nii.gz. Temporal contributors
+  # retain their own MEDIC fields and source-slice timing inside one spatial
+  # kernel; scout resampling does not add interpolation to final intensities.
+  "$ResamplePython" "$MEDIR_IN/lib/mefmri_medic_resample.py" \
+    --inputs "${NativeEchoes[@]}" --dmap "$DMap" --axis "$PED" \
+    --timing "$ProcDir/SliceTiming.txt" --base-warp "$Intermediate2ACPCWarp" \
+    --reference "$AtlasTemplate_IN" --mask "$BrainMask" --tr "$tr" \
+    --discard "$rmVols" --motion-dir "$ProcDir/Rest_AVG_mcf.mat" \
+    --output-dir "$ProcDir" --prefix "$FuncFilePrefix" "${ReorientArgs[@]}" || return 1
 
   rm -rf "$ProcDir/MCF"
   mv "$ProcDir"/*_mcf*.mat "$ProcDir/MCF"
@@ -375,6 +388,7 @@ func() {
   fi
 
   rm -f "$ProcDir"/Mean*.nii.gz "$ProcDir"/Bias*.nii.gz
+  refinement_mark "$MEDIR_IN" "$ProcDir" "$FuncFilePrefix" || return 1
   if [[ "$KeepMCF" -eq 0 ]]; then
     rm -rf "$ProcDir/MCF" "$ProcDir/Rest_AVG_mcf.mat" "$ProcDir/Rest_AVG_mcf.mat+"
   fi

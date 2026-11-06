@@ -1,0 +1,27 @@
+{
+  "subject": "ME01",
+  "scan_windows": [
+    [
+      10,
+      11
+    ],
+    [
+      20,
+      21,
+      22
+    ],
+    [
+      24,
+      25
+    ]
+  ],
+  "frames": 6,
+  "frame_duration_ms": 900,
+  "selection": "Three illustrative windows after reviewing all43 adjacent transitions; intentionally selected to show visible benefits, not representative average performance",
+  "source": "Saved before/after comparison frames; no new registrations or geometric edits",
+  "view": "Coronal crop, identical coordinates and magnification for both methods",
+  "annotations": "Fixed attention boxes in both rows, unchanged across scans",
+  "full_longitudinal_display": "me01-coreg-before-after.gif",
+  "full_resolution_all_scans": "me01-coreg-before-after.mp4",
+  "interpretation": "Qualitative highlights, not a quantitative registration accuracy benchmark"
+}

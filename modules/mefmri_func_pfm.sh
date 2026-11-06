@@ -13,7 +13,7 @@ SubjectDir="${StudyFolder}/${Subject}"
 PFM_STRATEGY="${PFM_STRATEGY:-ridgepfm}"
 PFM_PYTHON="${PFM_PYTHON:-${PIPELINE_PYTHON:-python3}}"
 PFM_RESOURCES_ROOT="${PFM_RESOURCES_ROOT:-${MEDIR}/res0urces}"
-PFM_ROOT_DIR="${PFM_OUTDIR:-${SubjectDir}/func/${FuncDirName}/PFM}"
+PFM_ROOT_DIR="${PFM_OUTDIR:-${SubjectDir}/pfm}"
 
 case "$PFM_STRATEGY" in
   ridgepfm|RidgePFM|ridge_fusion|RidgeFusion|ridge-fusion)
@@ -45,6 +45,10 @@ PFM_INPUT_CIFTI="${PFM_INPUT_CIFTI:-}"
 PFM_INPUT_TAG="${PFM_INPUT_TAG:-${CONCAT_INPUT_TAG:-OCME+MEICA+MGTR}}"
 PFM_CONCAT_OUT_SUBDIR="${PFM_CONCAT_OUT_SUBDIR:-${CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}}"
 PFM_FD_THRESHOLD="${PFM_FD_THRESHOLD:-${CONCAT_FD_THRESHOLD:-0.3}}"
+PFM_CONCAT_DIR="${PFM_CONCAT_DIR:-${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}}"
+if [[ -z "$PFM_INPUT_CIFTI" && -f "${PFM_ROOT_DIR}/${PFM_CONCAT_OUT_SUBDIR}/PFMPrepSummary.json" ]]; then
+  PFM_CONCAT_DIR="${PFM_ROOT_DIR}/${PFM_CONCAT_OUT_SUBDIR}"
+fi
 
 PFM_DISTANCE_MATRIX="${PFM_DISTANCE_MATRIX:-${SubjectDir}/anat/T1w/fsaverage_LR32k/DistanceMatrix.npy}"
 PFM_DISTANCE_BUILD_IF_MISSING="${PFM_DISTANCE_BUILD_IF_MISSING:-1}"
@@ -83,7 +87,7 @@ if [[ -z "$PFM_PRIORS_MAT" ]]; then
   [[ -f "$PFM_SUBCORT_PRIORS_NII" ]] || PFM_SUBCORT_PRIORS_NII=""
 fi
 PFM_RF_CONFIDENCE_ENABLE="${PFM_RF_CONFIDENCE_ENABLE:-0}"
-PFM_RF_CONFIDENCE_SCAN_IDX="${PFM_RF_CONFIDENCE_SCAN_IDX:-${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanIdx.mat}"
+PFM_RF_CONFIDENCE_SCAN_IDX="${PFM_RF_CONFIDENCE_SCAN_IDX:-${PFM_CONCAT_DIR}/ScanIdx.mat}"
 PFM_RF_CONFIDENCE_FC_THRESHOLD="${PFM_RF_CONFIDENCE_FC_THRESHOLD:-0.7}"
 PFM_RF_VOLUME_ENABLE="${PFM_RF_VOLUME_ENABLE:-0}"
 PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-${FUNC_XFMS_DIRNAME:-${FuncDirName}}}"
@@ -213,8 +217,12 @@ PFM_HOMOGENEITY_MAX_MEMBERS_PER_COMMUNITY="${PFM_HOMOGENEITY_MAX_MEMBERS_PER_COM
 PFM_HOMOGENEITY_ALPHA="${PFM_HOMOGENEITY_ALPHA:-0.05}"
 
 if [[ -z "$PFM_INPUT_CIFTI" ]]; then
-  FD_TAG="${PFM_FD_THRESHOLD//./p}"
-  PFM_INPUT_CIFTI="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/${FuncFilePrefix}_${PFM_INPUT_TAG}_Concatenated+FDlt${FD_TAG}.dtseries.nii"
+  if [[ -f "$PFM_CONCAT_DIR/PFMPrepSummary.json" ]]; then
+    PFM_INPUT_CIFTI="$("${PIPELINE_PYTHON:-python3}" -c 'import json,sys; print(json.load(open(sys.argv[1]))["out_censored"])' "$PFM_CONCAT_DIR/PFMPrepSummary.json")"
+  else
+    FD_TAG="${PFM_FD_THRESHOLD//./p}"
+    PFM_INPUT_CIFTI="${PFM_CONCAT_DIR}/${FuncFilePrefix}_${PFM_INPUT_TAG}_Concatenated+FDlt${FD_TAG}.dtseries.nii"
+  fi
 fi
 
 L_MID="${SubjectDir}/anat/T1w/fsaverage_LR32k/${Subject}.L.midthickness.32k_fs_LR.surf.gii"
@@ -232,6 +240,16 @@ command -v wb_command >/dev/null 2>&1 || { echo "ERROR: wb_command not found"; e
 if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE" == "1" && "$PFM_AREAL_ENABLE" != "1" ]]; then
   echo "ERROR: PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE=1 requires PFM_AREAL_ENABLE=1"
   exit 2
+fi
+
+# Check retained sessions before distance construction, regression, or fitting.
+if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_CONFIDENCE_ENABLE" == "1" ]]; then
+  if [[ "$PFM_INPUT_CIFTI" == *+FDlt* && "$PFM_RF_CONFIDENCE_SCAN_IDX" == */ScanIdx.mat ]]; then
+    PFM_RF_CONFIDENCE_SCAN_IDX="${PFM_RF_CONFIDENCE_SCAN_IDX%ScanIdx.mat}ScanIdx_Censored.mat"
+  fi
+  "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_confidence_preflight.py" \
+    --in-cifti "$PFM_INPUT_CIFTI" --scan-idx "$PFM_RF_CONFIDENCE_SCAN_IDX" \
+    --minimum-frames "$PFM_RF_REPEAT_MIN_FRAMES"
 fi
 
 mkdir -p "$PFM_OUTDIR"
@@ -264,7 +282,7 @@ if [[ "${PFM_RF_SUBCORT_REGRESS_ENABLE}" == "1" ]]; then
   PFM_INPUT_CIFTI_REG="${PREP_DIR}/${IN_BASENAME}+SubcortRegression.dtseries.nii"
   echo "[pfm] running Python subcortical regression (distance=${PFM_RF_SUBCORT_REGRESS_DISTANCE_MM} mm) -> ${PFM_INPUT_CIFTI_REG}"
   regression_metadata=( )
-  regression_scan_idx="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanIdx.mat"
+  regression_scan_idx="${PFM_CONCAT_DIR}/ScanIdx.mat"
   [[ "$PFM_INPUT_CIFTI" != *+FDlt* ]] || regression_scan_idx="${regression_scan_idx%ScanIdx.mat}ScanIdx_Censored.mat"
   [[ ! -f "$regression_scan_idx" ]] || regression_metadata=( --scan-idx "$regression_scan_idx" )
   "$PFM_PYTHON" "$MEDIR/lib/pfm_subcort_regress.py" \
@@ -384,8 +402,8 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
   fi
 
   if [[ "$PFM_RF_REPEAT_SUPPORT_ENABLE" == "1" ]]; then
-    PFM_RF_REPEAT_FD="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/FD.txt"
-    PFM_RF_REPEAT_SCAN_INFO="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanInfo.json"
+    PFM_RF_REPEAT_FD="${PFM_CONCAT_DIR}/FD.txt"
+    PFM_RF_REPEAT_SCAN_INFO="${PFM_CONCAT_DIR}/ScanInfo.json"
     PFM_RF_REPEAT_DIR="${PFM_OUTDIR}/${PFM_RF_REPEAT_OUTDIR_NAME}"
     [[ -f "$PFM_RF_REPEAT_FD" ]] || { echo "ERROR: missing concatenation FD for RidgePFM repeat support: $PFM_RF_REPEAT_FD"; exit 2; }
     [[ -f "$PFM_RF_REPEAT_SCAN_INFO" ]] || { echo "ERROR: missing ScanInfo.json for RidgePFM repeat support: $PFM_RF_REPEAT_SCAN_INFO"; exit 2; }
@@ -623,8 +641,8 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE
   # Normalized score weights used to identify plausible alternatives. These
   # are not calibrated probabilities of true network identity.
   PFM_RF_MULTINETWORK_PROB="${PFM_OUTDIR}/${PFM_RF_OUTFILE}_FusedScoreSoftmax.dtseries.nii"
-  PFM_RF_MULTINETWORK_FD="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/FD.txt"
-  PFM_RF_MULTINETWORK_SCAN_INFO="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/ScanInfo.json"
+  PFM_RF_MULTINETWORK_FD="${PFM_CONCAT_DIR}/FD.txt"
+  PFM_RF_MULTINETWORK_SCAN_INFO="${PFM_CONCAT_DIR}/ScanInfo.json"
   PFM_RF_MULTINETWORK_SUPPORT="${PFM_RF_MULTINETWORK_DIR}/${PFM_RF_MULTINETWORK_CV_PREFIX}_ParcelSummary.csv"
 
   [[ -f "$PFM_RF_MULTINETWORK_PARCELS" ]] || { echo "ERROR: missing areal dlabel for experimental multi-network analysis: $PFM_RF_MULTINETWORK_PARCELS"; exit 2; }
@@ -695,4 +713,31 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_MULTINETWORK_EXPERIMENTAL_ENABLE
     --outfile-prefix "${PFM_RF_MULTINETWORK_OUTFILE}_Localized"
 fi
 
+if [[ -n "${PFM_DATASET_ROOT:-}" ]]; then
+  export "${!PFM_@}"
+  "${PIPELINE_PYTHON:-python3}" - "$PFM_OUTDIR/analysis.json" "$MEDIR" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+destination, pipeline = Path(sys.argv[1]), Path(sys.argv[2])
+settings = {k: v for k, v in os.environ.items() if k.startswith('PFM_') and k != 'PFM_CONFIG_SNAPSHOT'}
+code = {}
+for name in ('pfm_ridge_fusion.py', 'pfm_module.py', 'pfm_ridge_confidence.py', 'pfm_subcort_regress.py'):
+    path = pipeline / 'lib' / name
+    if path.is_file():
+        code[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+resources = {}
+for name in ('PFM_PRIORS_MAT', 'PFM_SUBCORT_PRIORS_NII', 'PFM_DISTANCE_MATRIX'):
+    path = Path(settings.get(name) or '/nonexistent')
+    if path.is_file():
+        stat = path.stat()
+        resources[name] = {'path': str(path), 'bytes': stat.st_size, 'mtime_ns': stat.st_mtime_ns}
+        if stat.st_size < 100000000:
+            resources[name]['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+destination.write_text(json.dumps({'settings': settings, 'source_code_sha256': code,
+                                   'resources': resources}, indent=2, sort_keys=True) + '\n')
+PY
+fi
 echo "[pfm] complete"

@@ -1,101 +1,65 @@
 # pfm-mefmri
 
-A pipeline for processing **individual resting-state and task fMRI data**, including
-longitudinal data acquired across multiple sessions or visits. It integrates
-multi-echo-specific tools and processing frameworks, with support for single-echo
-acquisitions too.
+Processing and denoising for individual resting-state and task fMRI, from a single
+visit to densely sampled longitudinal studies. The workflow supports multi-echo
+and single-echo data, multiple distortion-correction strategies, careful
+coregistration to anatomy, and consistent within-participant alignment over time.
+Quality control connects anatomical alignment, motion and physiology, expert-calibrated FC quality scores (Lynch et al., 2026), and
+crawling-seed FC movies. Optional modules add precision functional mapping and
+individualized TMS targeting with [TANS](https://github.com/cjl2007/pfm-tans).
 
-Precision functional mapping (PFM) and individualized TMS targeting through
-[TANS](https://github.com/cjl2007/pfm-tans) can be added at the end of processing.
+![The dataset journey through pfm-mefmri: HCP anatomical pipelines, functional correction, longitudinal alignment, denoising, CIFTI outputs, QC, PFM, and individualized TMS targeting](docs/assets/pipeline-journey.svg)
 
-![An individual brain: multi-echo processing with single-echo support, individual-level network quality control, and optional PFM and TANS modules](docs/assets/individual-workflow.svg)
+## Explore the workflow
+
+| Section | What you will find |
+| --- | --- |
+| [Data organization](docs/data-organization.md) | Expected inputs, validate checks, and example rest/Motor/WorkingMemory outputs. |
+| [Processing and setup](docs/pipeline-overview.md) | Distortion correction, denoising, anatomy, longitudinal alignment, and CIFTI outputs. |
+| [Within-subject longitudinal alignment](docs/longitudinal-alignment.md) | Full-sequence comparison followed by focused examples of alignment within the same participant across scans and sessions. |
+| [Individual network maps](#precision-functional-mapping-pfm) | RidgePFM WTA and softmax views across network taxonomies; conventional Infomap is also supported. |
+| [RidgePFM parameters](docs/ridgepfm-parameters.md) | Interactive ME01 maps followed by reliability–individuality trade-offs and practical guidance. |
+| [Quality-control gallery](docs/output-gallery.md) | Motion and physiology, expert-calibrated FC quality scores, crawling-seed FC movies, alignment, and signal QC. |
+| [Individualized TMS](docs/tans/README.md) | Basic workflow, coil-search movie, and optional TANS module setup. |
+
+## Within-subject longitudinal alignment
+
+[Review alignment across scans and sessions](docs/longitudinal-alignment.md).
+Both approaches align well to anatomy; within-subject refinement adds subtle
+fine-tuning to dampen occasional placement shifts over time. This attention to
+within-person consistency is a central design priority of the pipeline.
 
 ## Precision Functional Mapping (PFM)
 
-**RidgePFM is an approach we are developing** for fast, flexible mapping of
-individual functional networks. It assigns locations within a chosen, established
-functional taxonomy, combining individual FC with spatial priors whose influence
-you can weight—from FC only to stronger group-prior guidance. Our goal is to
-retain individual detail while making network labels easier to compare across
-people and sessions. This is a work in progress that we think may offer a useful
-alternative to Infomap in some settings; **Infomap remains supported** for users
-who prefer it.
+**RidgePFM** combines individual functional connectivity with canonical network
+templates and spatial priors whose [influence you can weight and explore](docs/ridgepfm-parameters.md).
+It is a work in progress. A conventional **Infomap** workflow is also supported
+as an option.
 
-Choose **Lynch2024** (default), **Du2024**, **Hermosillo2024**, or **Kong2019**.
-Defaults: **ridge = 1**, **FC = 1**, **spatial prior = 0.05**.
+[![Individual network assignments; open the viewer to select a network taxonomy and any softmax network](docs/assets/ridgepfm/taxonomy-explorer-poster.png)](docs/ridgepfm-taxonomy-explorer.html?raw=1)
 
-![ME01 RidgePFM: four taxonomies, winner-take-all assignments, competing-label stripes, and session assignment frequencies](docs/assets/pfm-ridgepfm-me01-taxonomies.gif)
+**[Open the network-map selector](docs/ridgepfm-taxonomy-explorer.html?raw=1)**:
+choose **Lynch2024**, **Du2024**, **Hermosillo2024**, or **Kong2019**, then WTA
+labels or any network’s full-data softmax map. Check **Areal parcellation** to
+view parcels derived from that taxonomy’s network map and individual FC.
+Parcel fills show the majority network identity or mean softmax support;
+borders follow the selected taxonomy’s parcels. With the option off, network
+borders remain visible on softmax maps. Low–High colors show relative network
+support. Download the HTML and open it in a browser.
 
-*ME01: each taxonomy cycles through WTA assignments, separate stripes for
-reproducible FC with competing labels, and three network frequency maps from
-10 independently mapped sessions. Frequencies describe session consistency;
-model-fit maps are separate. Selected networks are illustrative, not exact
-equivalents across taxonomies.*
+[Explore λ and spatial-prior effects, then view the trade-off charts](docs/ridgepfm-parameters.md) ·
+[Mapping outputs](docs/pfm-outputs.md) · [Sampling across visits](docs/individual-longitudinal-studies.md).
 
-<details>
-<summary>Explore the spatial-prior weight: FC only → stronger group-prior influence</summary>
+## Data organization
 
-![ME01 Lynch2024 assignments at spatial weights 0, 0.05, 0.1, 0.25, and 0.5 with fixed FC evidence and ridge strength](docs/assets/pfm-ridgepfm-me01-spatial-weights.gif)
-
-The same fitted FC evidence is used throughout; only the spatial weight changes.
-This illustrates sensitivity to the prior, rather than selecting an optimal
-weight. Ridge and FC weights remain 1.
-
-</details>
-
-[Mapping options, confidence states, and ribbon-constrained volume exports](docs/pfm-outputs.md).
-Keep separate visit or epoch analyses when studying change.
-[Repeat-sampling guidance](docs/individual-longitudinal-studies.md).
-
-## Longitudinal and individual-level quality control
-
-This pipeline was built for dense longitudinal studies. When the same person is
-scanned repeatedly, consistent within-subject alignment over time is essential:
-apparent functional change should not be driven by a changing registration.
-The QC tools therefore connect network structure, runwise coregistration,
-physiology, motion, and denoising in one review path.
-
-**Crawling-seed FC maps** provide a quick visual review of network structure
-across cortex. The ME01 example follows a seed continuously across the left
-hemisphere and shows its whole-brain FC pattern on subject-specific surfaces.
-
-[![Animated crawling-seed functional connectivity showing how the connectivity pattern changes as the seed moves across cortex](docs/assets/qc-seed-fc-me01.gif)](docs/assets/qc-seed-fc-me01.mp4)
-
-*ME01: as the seed moves across cortex, its functional-connectivity map updates.
-[Watch the full movie](docs/assets/qc-seed-fc-me01.mp4); the looping preview samples
-frames from the full cortical sweep.*
-
-**Network Similarity Index (NSI)** quantifies how clearly an individual's
-functional connectivity expresses large-scale network structure
-([Lynch et al., 2026](https://www.cell.com/neuron/fulltext/S0896-6273%2826%2900412-5)).
-
-<img src="docs/assets/qc-nsi-usability.png" width="660" alt="NSI-based model estimate of precision functional mapping usability for the example participant">
-
-*NSI-based estimate of PFM usability.*
-
-[![ME01 longitudinal alignment: cycling functional runs above fixed T1 anatomy, with colored tissue boundaries](docs/assets/me01-coreg-run-template-rows.gif)](docs/assets/me01-coreg-run-template-rows.mp4)
-
-*ME01: 44 functional reference images cycle above fixed T1 anatomy, with
-white-matter (cyan), cortical gray-matter (orange), and ventricular-CSF (purple)
-boundaries. The goal is alignment to anatomy and reduced run-to-run variability
-in EPI placement.*
-
-![ME01 motion, respiration, pulse, framewise displacement, DVARS, and grayplots through echo combination, MEICA, and MGTR](docs/assets/qc-motion-grayplots-me01.png)
-
-*ME01 run-level review aligns respiratory and pulse traces with motion, FD,
-DVARS, and signal changes through each denoising stage.*
-
-[Full output gallery](docs/output-gallery.md) · [QC guide](docs/qc-modules.md).
-
-Individualized TMS targeting is available as an optional final module through
-[pfm-tans](https://github.com/cjl2007/pfm-tans). See the local
-[TANS integration guides](docs/tans/README.md) for configuration and output details.
+[Expected inputs and example processed outputs](docs/data-organization.md) for a
+participant with resting-state, Motor, and WorkingMemory scans across sessions
+and runs, including the naming and metadata checked by `validate`.
 
 ## Get started
 
 1. Install the [dependencies](SOFTWARE_DEPENDENCIES.txt).
-2. Adapt the [study configuration](config/mefmri_wrapper_config.sh) to your
-   installation and acquisition.
+2. Adapt the [study configuration](config/mefmri_wrapper_config.sh).
 3. [Import your data](docs/setup-and-inputs.md#importing-inputs), then run:
 
 ```bash
@@ -108,3 +72,5 @@ bash /path/to/pfm-mefmri/bin/mefmri_pipeline.sh \
 
 Research software. Review participant data quality and modeled outputs before
 use; participant-derived figures require permission before public distribution.
+
+[Configure your project](docs/configuration.md): copy the generic templates outside the repository, set software paths and acquisition rules, and choose your processing tasks.

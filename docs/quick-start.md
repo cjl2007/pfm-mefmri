@@ -18,7 +18,7 @@ configured environments expose the expected commands. Common requirements are:
 
 ## 2. Configure The Pipeline
 
-Follow [configuration setup](configuration.md) to copy the processing and site
+Start with the [template inventory and configuration setup](configuration.md#public-templates-and-project-owned-settings) to copy the processing and site
 environment templates into your study folder. Set your software paths and pass
 that study config explicitly when launching; do not run the config as a script.
 The [dependency guide](dependencies.md) separates core and optional tools.

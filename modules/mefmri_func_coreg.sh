@@ -293,7 +293,7 @@ for s in "${sessions[@]}" ; do
 	)
 
 	# Iterate over runs.
-	for r in "${runs[@]}" ; do
+	for r in "${runs[@]}" ; do 
 
 		# Read echo times.
 		[[ -f "$Subdir"/func/"$FuncDirName"/session_"$s"/run_"$r"/TE.txt ]] || {
@@ -549,11 +549,15 @@ mapfile -t Sessions < <(
 
 func () {
 
-	mapfile -t runs < <(
+	if [[ -n "${8:-}" ]]; then
+		runs=("$8")
+	else
+		mapfile -t runs < <(
 		find -L "$2"/func/"$FuncDirName"/session_"$6" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
 			sed 's/^run_//' |
 			sort -n
-	)
+		)
+	fi
 
 	# Iterate over runs.
 	for r in "${runs[@]}" ; do
@@ -598,7 +602,26 @@ func () {
 export FuncDirName FuncXfmsDir WMSEG_NII FM_DIR COREG_QA_DIR
 export -f func # also coregister individual SBrefs to the target anatomical image
 # Expand the full session array; a scalar array reference selects only the first session.
-parallel --jobs "$NTHREADS" func ::: "$MEDIR" ::: "$Subdir" ::: "$Subject" ::: "$DOF" ::: "$AtlasTemplate" ::: "${Sessions[@]}" ::: "$AvgPEDIR"
+case "${COREG_PARALLEL_UNIT:-session}" in
+  session)
+    parallel --jobs "$NTHREADS" func ::: "$MEDIR" ::: "$Subdir" ::: "$Subject" ::: "$DOF" ::: "$AtlasTemplate" ::: "${Sessions[@]}" ::: "$AvgPEDIR"
+    ;;
+  run)
+    coreg_run_worker() {
+      set -euo pipefail
+      func "$MEDIR" "$Subdir" "$Subject" "$DOF" "$AtlasTemplate" "$1" "$AvgPEDIR" "$2"
+    }
+    export MEDIR Subdir Subject DOF AtlasTemplate AvgPEDIR
+    export -f coreg_run_worker
+    for session in "${Sessions[@]}"; do
+      while IFS= read -r run; do
+        printf '%s\t%s\n' "$session" "$run"
+      done < <(find -L "$Subdir/func/$FuncDirName/session_$session" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -printf '%f\n' |
+        sed 's/^run_//' | sort -n)
+    done | parallel --jobs "$NTHREADS" --colsep '\t' coreg_run_worker {1} {2}
+    ;;
+  *) echo "ERROR: COREG_PARALLEL_UNIT must be session or run" >&2; exit 2 ;;
+esac
 
 # Write run-level pointer files needed by later stages.
 # (brain mask and subcortical mask in functional space)

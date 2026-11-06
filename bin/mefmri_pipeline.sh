@@ -22,9 +22,7 @@ Subject="$(basename "$SubjectDir")"
 StudyFolder="$(dirname "$SubjectDir")"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Give copied study configs the installation root before they define resource paths.
-PFM_MEFMRI_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_CONFIG="$PFM_MEFMRI_ROOT/config/mefmri_wrapper_config.sh"
+DEFAULT_CONFIG="$SCRIPT_DIR/../config/mefmri_wrapper_config.sh"
 ConfigFile="${ConfigFileArg:-${CONFIG_FILE:-$DEFAULT_CONFIG}}"
 
 if [ ! -f "$ConfigFile" ]; then
@@ -32,15 +30,31 @@ if [ ! -f "$ConfigFile" ]; then
   exit 2
 fi
 
+export PFM_MEFMRI_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 set -a
 source "$ConfigFile"
 set +a
+PFM_REQUESTED_INPUT_TAG="${PFM_INPUT_TAG:-}"
+PFM_REQUESTED_INPUT_CIFTI="${PFM_INPUT_CIFTI:-}"
+PFM_REQUESTED_CONCAT_DIR="${PFM_CONCAT_DIR:-}"
+PIPELINE_CONFIG_XFMS_DIRNAME="${FUNC_XFMS_DIRNAME:-}"
+if [[ "${PIPELINE_TASK_LOOP_CHILD:-0}" != 1 && "$(declare -p FUNC_DIRNAME 2>/dev/null)" == 'declare -a'* ]] && (( ${#FUNC_DIRNAME[@]} == 0 )); then
+  echo 'ERROR: FUNC_DIRNAME must contain at least one task.' >&2; exit 2
+fi
 
 if [[ -n "${PIPELINE_TASK_OVERRIDE:-}" ]]; then
-  FUNC_DIRNAME="$PIPELINE_TASK_OVERRIDE"
+  unset FUNC_DIRNAME
+  export FUNC_DIRNAME="$PIPELINE_TASK_OVERRIDE"
 fi
 if [[ -n "${PIPELINE_TASK_XFMS_OVERRIDE:-}" ]]; then
   FUNC_XFMS_DIRNAME="$PIPELINE_TASK_XFMS_OVERRIDE"
+fi
+if [[ -n "${PIPELINE_TASK_PREFIX_OVERRIDE:-}" ]]; then
+  unset FUNC_FILE_PREFIX
+  export FUNC_FILE_PREFIX="$PIPELINE_TASK_PREFIX_OVERRIDE"
+fi
+if [[ "${PIPELINE_DEFER_PFM:-0}" == 1 ]]; then
+  export PFM_ENABLE=0 PFM_INFOMAP_UPDATE_ENABLE=0 TANS_ENABLE=0
 fi
 
 # Optional config-specified FreeSurfer license path.
@@ -104,6 +118,15 @@ fi
 : "${FUNC_NOFIELDMAP_MODE:=0}" # 0|1
 : "${DISTORTION_CORRECTION_MODE:=topup}" # topup|direct_b0|medic|none
 : "${COREG_SDC_QC_ENABLE:=1}" # 0|1
+: "${COREG_ALIGNMENT_STRATEGY:=independent}" # independent|subject_refined
+: "${COREG_REFERENCE_POLICY:=rebuild}" # rebuild|frozen
+: "${COREG_ALIGNMENT_BUNDLE:=}"
+: "${COREG_REFERENCE_VERSION:=}"
+: "${COREG_REFERENCE_MEMBERS:=}"
+: "${COREG_REFERENCE_ROOT:=}"
+case "$COREG_ALIGNMENT_STRATEGY" in independent|subject_refined) ;; *) echo 'ERROR: invalid COREG_ALIGNMENT_STRATEGY' >&2; exit 2 ;; esac
+case "$COREG_REFERENCE_POLICY" in rebuild|frozen) ;; *) echo 'ERROR: invalid COREG_REFERENCE_POLICY' >&2; exit 2 ;; esac
+export COREG_ALIGNMENT_STRATEGY COREG_REFERENCE_POLICY COREG_ALIGNMENT_BUNDLE COREG_REFERENCE_VERSION COREG_REFERENCE_MEMBERS COREG_REFERENCE_ROOT
 : "${COREG_SDC_QC_STRICT:=0}" # 0|1
 : "${MOTION_GRAYPLOTS_QC_ENABLE:=1}" # 0|1
 : "${MOTION_GRAYPLOTS_QC_STRICT:=0}" # 0|1
@@ -350,17 +373,94 @@ discover_task_dirs() {
   done
 }
 
+resolve_task_file_prefix() {
+  local task="$1"
+  "${PIPELINE_PYTHON:-python3}" - "$SubjectDir" "$task" "$START_SESSION" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+subject, task, start = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
+pattern = re.compile(r'^(.+)_S([0-9]+)_R([0-9]+)_E[0-9]+(?:_acpc)?\.nii\.gz$')
+for root in (subject / 'func' / 'unprocessed' / task, subject / 'func' / task):
+    runs = []
+    for session in sorted(root.glob('session_*')):
+        sm = re.fullmatch(r'session_([0-9]+)', session.name)
+        if sm and int(sm.group(1)) >= start:
+            for run in sorted(session.glob('run_*')):
+                rm = re.fullmatch(r'run_([0-9]+)', run.name)
+                if rm and run.is_dir():
+                    runs.append((int(sm.group(1)), int(rm.group(1)), run))
+    if not runs:
+        continue
+    prefixes = {}
+    for session_number, run_number, run in runs:
+        found = set()
+        for path in run.glob('*.nii.gz'):
+            match = pattern.fullmatch(path.name)
+            if not match or match.group(1).lower() == 'sbref' or not path.is_file():
+                continue
+            if (int(match.group(2)), int(match.group(3))) == (session_number, run_number):
+                found.add(match.group(1))
+        if len(found) != 1:
+            raise SystemExit('ERROR: task {}: expected one magnitude prefix in {}, found {}. '
+                             'Expected <prefix>_S{}_R{}_E<number>.nii.gz.'.format(
+                                 task, run, sorted(found), session_number, run_number))
+        prefix = next(iter(found))
+        prefixes.setdefault(prefix, []).append(str(run))
+    if len(prefixes) != 1:
+        raise SystemExit('ERROR: task {} has inconsistent magnitude prefixes across runs/sessions: {}'.format(
+            task, '; '.join('{} in {}'.format(k, ', '.join(v)) for k, v in sorted(prefixes.items()))))
+    print(next(iter(prefixes)))
+    break
+else:
+    raise SystemExit('ERROR: task {} has no run directories at or after session {}.'.format(task, start))
+PY
+}
+
 run_all_tasks() {
   local -a tasks=()
+  local -A task_prefixes=()
   local task rc=0
-  mapfile -t tasks < <(discover_task_dirs)
+  if [[ "$(declare -p FUNC_DIRNAME 2>/dev/null)" == 'declare -a'* || "$(declare -p FUNC_DIRNAME 2>/dev/null)" == 'declare -ax'* ]]; then
+    tasks=("${FUNC_DIRNAME[@]}")
+    if (( ${#tasks[@]} != ${#FUNC_FILE_PREFIX[@]} )); then
+      echo 'ERROR: FUNC_DIRNAME and FUNC_FILE_PREFIX arrays must have the same length.' >&2
+      exit 2
+    fi
+    local index
+    for index in "${!tasks[@]}"; do
+      task="${tasks[$index]}"
+      if [[ ! "$task" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ || -n "${task_prefixes[$task]:-}" ]]; then
+        echo "ERROR: invalid or duplicate functional task: $task" >&2; exit 2
+      fi
+      task_prefixes["$task"]="${FUNC_FILE_PREFIX[$index]}"
+      [[ -n "${task_prefixes[$task]}" ]] || { echo "ERROR: empty prefix for $task" >&2; exit 2; }
+    done
+  else
+    mapfile -t tasks < <(discover_task_dirs)
+  fi
   if [[ "${#tasks[@]}" -eq 0 ]]; then
     echo "ERROR: FUNC_DIRNAME=All but no task directories were found under $SubjectDir/func or $SubjectDir/func/unprocessed" >&2
     exit 2
   fi
 
-  echo "Task selection: All"
+  echo "Functional task selection"
   printf 'Discovered tasks (%d): %s\n' "${#tasks[@]}" "$(IFS=,; echo "${tasks[*]}")"
+
+  # Resolve every task before anatomy or echo-count/mode detection in children.
+  for task in "${tasks[@]}"; do
+    if [[ -z "${task_prefixes[$task]:-}" || "${task_prefixes[$task],,}" == auto ]]; then
+      task_prefixes["$task"]="$(resolve_task_file_prefix "$task")" || exit 2
+    elif [[ -d "$SubjectDir/func/unprocessed/$task" ]]; then
+      local found_prefix
+      found_prefix="$(resolve_task_file_prefix "$task")" || exit 2
+      [[ "$found_prefix" == "${task_prefixes[$task]}" ]] || {
+        echo "ERROR: task $task is configured with prefix ${task_prefixes[$task]}, but files use $found_prefix." >&2; exit 2;
+      }
+    fi
+    printf '[task-loop] task=%s prefix=%s\n' "$task" "${task_prefixes[$task]}"
+  done
 
   local start_idx stop_idx
   local validate_idx anat_hcp_idx anat_charm_idx
@@ -375,9 +475,42 @@ run_all_tasks() {
     stop_idx=999999
   fi
 
+  local -a selection=(rest) dataset_args=()
+  if declare -p PFM_INPUT_TASKS >/dev/null 2>&1; then selection=("${PFM_INPUT_TASKS[@]}"); fi
+  for task in "${tasks[@]}"; do dataset_args+=(--task "$task" "${task_prefixes[$task]}"); done
+  local item
+  for item in "${selection[@]}"; do dataset_args+=(--select "$item"); done
+  local dataset_spec
+  if (( stop_idx >= $(stage_index pfm) )) && [[ "${PFM_ENABLE:-0}${TANS_ENABLE:-0}${PFM_INFOMAP_UPDATE_ENABLE:-0}" != 000 ]]; then
+   dataset_spec="$("${PIPELINE_PYTHON:-python3}" "$MEDIR/lib/mefmri_pfm_dataset.py" select "${dataset_args[@]}")" || exit 2
+   export PFM_INPUT_TASK_SPECS_JSON="$dataset_spec"
+   source "$MEDIR/lib/pfm_confidence_preflight.sh" "$SubjectDir" "${tasks[0]}" "$START_SESSION"
+  else
+   dataset_spec="[]"
+  fi
+
+  # Validate all requested inputs before any costly shared anatomy/functional work.
+  local functional_start="$START_FROM_MODULE"
+  if (( start_idx <= validate_idx )); then
+    for task in "${tasks[@]}"; do
+      env PIPELINE_TASK_LOOP_CHILD=1 PIPELINE_TASK_OVERRIDE="$task" \
+        PIPELINE_TASK_PREFIX_OVERRIDE="${task_prefixes[$task]}" \
+        PIPELINE_TASK_XFMS_OVERRIDE="${PIPELINE_CONFIG_XFMS_DIRNAME:-$task}" \
+        PIPELINE_DEFER_PFM=1 PIPELINE_SKIP_ANAT=1 \
+        PIPELINE_START_FROM_MODULE_OVERRIDE=validate PIPELINE_STOP_AFTER_MODULE_OVERRIDE=validate \
+        bash "$0" "$SubjectDir" "$ConfigFile" || exit $?
+    done
+    if (( stop_idx == validate_idx )); then exit 0; fi
+    functional_start=fieldmaps
+  fi
+
   local needs_anat=0
   if (( start_idx <= anat_charm_idx && stop_idx >= anat_hcp_idx )); then
     needs_anat=1
+  fi
+  if [[ "${PIPELINE_SKIP_ANAT}" == "1" ]]; then
+    needs_anat=0
+    echo "[task-loop] reusing existing anatomy (PIPELINE_SKIP_ANAT=1)"
   fi
 
   # Run shared (subject-level) anatomy once, then run per-task modules in child invocations.
@@ -404,6 +537,8 @@ run_all_tasks() {
       PIPELINE_TASK_LOOP_CHILD=1 \
       PIPELINE_TASK_OVERRIDE="${tasks[0]}" \
       PIPELINE_TASK_XFMS_OVERRIDE="${tasks[0]}" \
+      PIPELINE_TASK_PREFIX_OVERRIDE="${task_prefixes[${tasks[0]}]}" \
+      PIPELINE_DEFER_PFM=1 \
       PIPELINE_SKIP_ANAT=0 \
       PIPELINE_START_FROM_MODULE_OVERRIDE="$global_start" \
       PIPELINE_STOP_AFTER_MODULE_OVERRIDE="$global_stop" \
@@ -421,14 +556,21 @@ run_all_tasks() {
     fi
   fi
 
-  for task in "${tasks[@]}"; do
+  local functional_stop="$STOP_AFTER_MODULE"
+  if (( stop_idx > $(stage_index nsi) )); then functional_stop=nsi; fi
+  if (( start_idx <= $(stage_index nsi) )); then
+   for task in "${tasks[@]}"; do
     echo
     echo "[task-loop] starting task=${task}"
     set +e
     env \
       PIPELINE_TASK_LOOP_CHILD=1 \
       PIPELINE_TASK_OVERRIDE="$task" \
-      PIPELINE_TASK_XFMS_OVERRIDE="$task" \
+      PIPELINE_TASK_XFMS_OVERRIDE="${PIPELINE_CONFIG_XFMS_DIRNAME:-$task}" \
+      PIPELINE_TASK_PREFIX_OVERRIDE="${task_prefixes[$task]}" \
+      PIPELINE_DEFER_PFM=1 \
+      PIPELINE_STOP_AFTER_MODULE_OVERRIDE="$functional_stop" \
+      PIPELINE_START_FROM_MODULE_OVERRIDE="$functional_start" \
       PIPELINE_SKIP_ANAT=1 \
       bash "$0" "$SubjectDir" "$ConfigFile"
     rc=$?
@@ -438,12 +580,30 @@ run_all_tasks() {
       exit "$rc"
     fi
     echo "[task-loop] complete task=${task}"
-  done
+   done
+  fi
+  if (( stop_idx >= $(stage_index pfm) )) && [[ "$dataset_spec" != "[]" ]]; then
+    local reference_task reference_prefix downstream_start="$START_FROM_MODULE"
+    reference_task="$("${PIPELINE_PYTHON:-python3}" -c 'import json,sys; print(json.loads(sys.argv[1])[0]["task"])' "$dataset_spec")"
+    reference_prefix="${task_prefixes[$reference_task]}"
+    if (( start_idx < $(stage_index pfm) )); then downstream_start=pfm; fi
+    env PIPELINE_TASK_LOOP_CHILD=1 PIPELINE_TASK_OVERRIDE="$reference_task" \
+      PIPELINE_TASK_PREFIX_OVERRIDE="$reference_prefix" PIPELINE_SKIP_ANAT=1 \
+      PIPELINE_TASK_XFMS_OVERRIDE="${PIPELINE_CONFIG_XFMS_DIRNAME:-$reference_task}" \
+      PIPELINE_PFM_DATASET_CHILD=1 PFM_DATASET_TASKS_JSON="$dataset_spec" \
+      PIPELINE_PFM_REBUILD_INPUTS="$(( start_idx <= $(stage_index concat) ? 1 : 0 ))" \
+      PIPELINE_START_FROM_MODULE_OVERRIDE="$downstream_start" \
+      bash "$0" "$SubjectDir" "$ConfigFile"
+  fi
   exit 0
 }
 
-if is_all_task_selection "$FUNC_DIRNAME" && [[ "$PIPELINE_TASK_LOOP_CHILD" != "1" ]]; then
+if [[ "$PIPELINE_TASK_LOOP_CHILD" != "1" ]] && { is_all_task_selection "$FUNC_DIRNAME" || [[ "$(declare -p FUNC_DIRNAME 2>/dev/null)" == 'declare -a'* ]]; }; then
   run_all_tasks
+fi
+if [[ "${FUNC_FILE_PREFIX,,}" == "auto" ]]; then
+  FUNC_FILE_PREFIX="$(resolve_task_file_prefix "$FUNC_DIRNAME")" || exit 2
+  export FUNC_FILE_PREFIX
 fi
 
 # Apply optional post-config overrides.
@@ -893,6 +1053,12 @@ if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
     echo "qc_output_dirname=$QC_OUTPUT_DIRNAME"
     echo "qc_validation_enable=$QC_VALIDATION_ENABLE"
     echo "coreg_sdc_qc_enable=$COREG_SDC_QC_ENABLE"
+    echo "coreg_alignment_strategy=$COREG_ALIGNMENT_STRATEGY"
+    echo "coreg_reference_policy=$COREG_REFERENCE_POLICY"
+    echo "coreg_reference_version_requested=$COREG_REFERENCE_VERSION"
+    echo "coreg_alignment_bundle_requested=$COREG_ALIGNMENT_BUNDLE"
+    echo "coreg_reference_members=$COREG_REFERENCE_MEMBERS"
+    echo "coreg_reference_root_requested=$COREG_REFERENCE_ROOT"
     echo "coreg_sdc_qc_strict=$COREG_SDC_QC_STRICT"
     echo "motion_grayplots_qc_enable=$MOTION_GRAYPLOTS_QC_ENABLE"
     echo "motion_grayplots_qc_strict=$MOTION_GRAYPLOTS_QC_STRICT"
@@ -944,6 +1110,45 @@ if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
   echo "Run metadata snapshot: $RUN_META_FILE"
 fi
 
+# Resume runs skip validate, but must still reject impossible confidence settings.
+if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
+  export PFM_FD_THRESHOLD="${PFM_FD_THRESHOLD:-${CONCAT_FD_THRESHOLD:-0.3}}"
+  PFM_DATASET_ROOT="${PFM_OUTDIR:-$SubjectDir/pfm}"
+  export PFM_DATASET_ROOT PFM_CONCAT_DIR="$PFM_DATASET_ROOT/${PFM_CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}"
+  if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then
+    export PFM_CONCAT_DIR="${PFM_REQUESTED_CONCAT_DIR:-$(dirname "$PFM_REQUESTED_INPUT_CIFTI")}"
+  fi
+  if [[ "$START_FROM_MODULE" == tans || "$START_FROM_MODULE" == pfm_update ]]; then
+    if [[ -z "${PFM_OUTDIR:-}" && ! -d "$PFM_DATASET_ROOT" && -d "$SubjectDir/func/$FUNC_DIRNAME/PFM" ]]; then
+      export PFM_DATASET_ROOT="$SubjectDir/func/$FUNC_DIRNAME/PFM" PFM_OUTDIR="$SubjectDir/func/$FUNC_DIRNAME/PFM"
+      export PFM_CONCAT_DIR="$SubjectDir/func/$FUNC_DIRNAME/${PFM_CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}"
+    fi
+  fi
+  export PFM_INPUT_TASK_SPECS_JSON="$PFM_DATASET_TASKS_JSON"
+  export PFM_REQUESTED_INPUT_TAG
+  export PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-$FUNC_XFMS_DIRNAME}"
+  export PFM_CONFIG_SNAPSHOT="$(cat "$ConfigFile")"
+  if [[ "$START_FROM_MODULE" != tans && "$START_FROM_MODULE" != pfm_update ]]; then
+    dataset_prepare_args=()
+    if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then dataset_prepare_args+=(--external-cifti "$PFM_REQUESTED_INPUT_CIFTI"); fi
+    "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" prepare \
+      --subject-dir "$SubjectDir" --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON" \
+      --start-session "$START_SESSION" --rebuild "${PIPELINE_PFM_REBUILD_INPUTS:-0}" "${dataset_prepare_args[@]}"
+  else
+    "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" verify-selection --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON"
+  fi
+  if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then
+    export PFM_INPUT_CIFTI="$PFM_REQUESTED_INPUT_CIFTI"
+  elif [[ -f "$PFM_CONCAT_DIR/PFMPrepSummary.json" ]]; then
+    PFM_INPUT_CIFTI="$("$PIPELINE_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["out_censored"])' "$PFM_CONCAT_DIR/PFMPrepSummary.json")"
+    export PFM_INPUT_CIFTI
+  fi
+  export PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-$FUNC_XFMS_DIRNAME}"
+fi
+if should_run_stage "pfm"; then
+  source "$MEDIR/lib/pfm_confidence_preflight.sh" "$SubjectDir" "$FUNC_DIRNAME" "$START_SESSION"
+fi
+
 print_section "Running input validation"
 if should_run_stage "validate"; then
   [ -f "$VALIDATE_MODULE" ] || { echo "ERROR: missing module: $VALIDATE_MODULE"; exit 2; }
@@ -954,6 +1159,17 @@ if should_run_stage "validate"; then
   fi
 else
   echo "Skipping validate (START_FROM_MODULE=${START_FROM_MODULE})"
+fi
+
+if [[ "$COREG_ALIGNMENT_STRATEGY" == subject_refined ]]; then
+  source "$MEDIR/lib/mefmri_refinement_stage.sh"
+  if should_run_stage "coreg"; then
+    if [[ "$COREG_REFERENCE_POLICY" == frozen ]] && should_run_stage "anat_hcp" && [[ "${PIPELINE_SKIP_ANAT}" != 1 ]]; then
+      echo 'ERROR: Frozen-reference processing must reuse the existing anatomy (PIPELINE_SKIP_ANAT=1 or resume at fieldmaps/coreg).' >&2
+      exit 2
+    fi
+    refinement_stage reserve
+  fi
 fi
 
 print_section "Running anatomical modules"
@@ -1041,6 +1257,9 @@ fi
 [ -f "$CoregModule" ] || { echo "ERROR: missing module: $CoregModule"; exit 2; }
 if should_run_stage "coreg"; then
   run_module "$CoregTag" bash "$CoregModule" "$MEDIR" "$Subject" "$StudyFolder" "$AtlasTemplate" "$DOF" "$THREADS_COREG" "$START_SESSION" "$AtlasSpace" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+  if [[ "$COREG_ALIGNMENT_STRATEGY" == subject_refined ]]; then
+    refinement_stage prepare 0
+  fi
   if [[ "${COREG_SDC_QC_ENABLE}" == "1" ]]; then
     [ -f "$FUNC_QC_COREG_SDC_MODULE" ] || { echo "ERROR: missing module: $FUNC_QC_COREG_SDC_MODULE"; exit 2; }
     run_module "qc_coreg_sdc" bash "$FUNC_QC_COREG_SDC_MODULE" "$MEDIR" "$Subject" "$StudyFolder" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX" "$FUNC_XFMS_DIRNAME" "$DISTORTION_CORRECTION_MODE"
@@ -1064,17 +1283,40 @@ if [[ "$DISTORTION_CORRECTION_MODE" == "medic" ]]; then
 fi
 [ -f "$HeadmotionModule" ] || { echo "ERROR: missing module: $HeadmotionModule"; exit 2; }
 if should_run_stage "headmotion"; then
+  if [[ "$COREG_ALIGNMENT_STRATEGY" == subject_refined ]] && ! should_run_stage "coreg"; then
+    refinement_stage prepare 1
+  fi
   run_module "$HeadmotionTag" bash "$HeadmotionModule" "$MEDIR" "$Subject" "$StudyFolder" "$AtlasTemplate" "$DOF" "$THREADS_HEADMOTION" "$START_SESSION" "$AtlasSpace" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+  if [[ "$COREG_ALIGNMENT_STRATEGY" == subject_refined ]]; then
+    refinement_stage check
+  fi
   if [[ "$STOP_AFTER_MODULE" == "headmotion" ]]; then
     echo "Stopping after headmotion (STOP_AFTER_MODULE=headmotion)"
     exit 0
   fi
 else
   echo "Skipping headmotion (START_FROM_MODULE=${START_FROM_MODULE})"
+  if [[ "$COREG_ALIGNMENT_STRATEGY" == subject_refined ]]; then
+    refinement_stage prepare 1
+    refinement_stage check
+  elif find "$SubjectDir/func/$FUNC_DIRNAME" -name BOLDAlignment.json -print -quit 2>/dev/null | grep -q .; then
+    source "$MEDIR/lib/mefmri_refinement_stage.sh"
+    refinement_stage check
+  fi
 fi
+
+alignment_downstream() {
+  "${PIPELINE_PYTHON:-python3}" "$MEDIR/lib/mefmri_refinement_downstream.py" "$1" \
+    --subject-dir "$SubjectDir" --func-dir "$FUNC_DIRNAME" \
+    --start-session "$START_SESSION" --stage "$2" "${@:3}"
+}
 
 print_section "Running denoising"
 if should_run_stage "denoise"; then
+  # Existing tedana results are reusable only for the same BOLD generation.
+  if ! alignment_downstream check denoise --quiet-missing; then
+    export MEICA_SKIP_TEDANA_IF_EXISTS=0
+  fi
   if [[ "${PIPELINE_EFFECTIVE_DENOISE_MODE}" == "single_echo" ]]; then
     if [[ "${SINGLE_ECHO_DENOISE_METHOD}" == "aroma" ]]; then
       [ -f "$FUNC_AROMA_MODULE" ] || { echo "ERROR: missing module: $FUNC_AROMA_MODULE"; exit 2; }
@@ -1102,6 +1344,7 @@ if should_run_stage "denoise"; then
       fi
     fi
   fi
+  alignment_downstream stamp denoise
   if [[ "$STOP_AFTER_MODULE" == "denoise" ]]; then
     echo "Skipping Motion & GrayPlots QC (requires vol2surf dtseries outputs; run through vol2surf or later)."
     echo "Stopping after denoise (STOP_AFTER_MODULE=denoise)"
@@ -1109,6 +1352,7 @@ if should_run_stage "denoise"; then
   fi
 else
   echo "Skipping denoise (START_FROM_MODULE=${START_FROM_MODULE})"
+  alignment_downstream check denoise
 fi
 
 print_section "Running MGTR"
@@ -1117,8 +1361,10 @@ if [[ "${PIPELINE_EFFECTIVE_MGTR_ENABLE}" != "1" ]]; then
   echo "Skipping mgtr (MGTR_ENABLE=${MGTR_ENABLE}, effective denoise method=${PIPELINE_EFFECTIVE_DENOISE_METHOD})"
 elif should_run_stage "mgtr"; then
   run_module "mgtr" bash "$FUNC_MGTR_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION"
+  alignment_downstream stamp mgtr
 else
   echo "Skipping mgtr (START_FROM_MODULE=${START_FROM_MODULE})"
+  alignment_downstream check mgtr
 fi
 if [[ "$STOP_AFTER_MODULE" == "mgtr" ]]; then
   echo "Skipping Motion & GrayPlots QC (requires vol2surf dtseries outputs; run through vol2surf or later)."
@@ -1135,8 +1381,10 @@ fi
 Vol2SurfSpec="$VOL2SURF_INPUTS"
 if should_run_stage "vol2surf"; then
   run_module "vol2surf" bash "$FUNC_VOL2SURF_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$Vol2SurfSpec" "$START_SESSION" "$AtlasSpace" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+  alignment_downstream stamp surface
 else
   echo "Skipping vol2surf (START_FROM_MODULE=${START_FROM_MODULE})"
+  alignment_downstream check surface
 fi
 
 print_section "Generating Motion & GrayPlots QC"
@@ -1155,6 +1403,7 @@ if [[ "${CONCAT_ENABLE}" == "1" ]]; then
     print_section "Running concat module"
     [ -f "$FUNC_CONCAT_MODULE" ] || { echo "ERROR: missing module: $FUNC_CONCAT_MODULE"; exit 2; }
     run_module "concat" bash "$FUNC_CONCAT_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+    alignment_downstream stamp concat
     if [[ "${CRAWLING_SEED_FC_ENABLE}" == "1" ]]; then
       print_section "Generating crawling seed FC movie"
       [ -f "$FUNC_CRAWLING_SEED_FC_MODULE" ] || { echo "ERROR: missing module: $FUNC_CRAWLING_SEED_FC_MODULE"; exit 2; }
@@ -1169,6 +1418,7 @@ if [[ "${CONCAT_ENABLE}" == "1" ]]; then
     fi
   else
     echo "Skipping concat (START_FROM_MODULE=${START_FROM_MODULE})"
+    alignment_downstream check concat
   fi
 fi
 
@@ -1191,6 +1441,9 @@ if [[ "${PFM_ENABLE}" == "1" ]]; then
     print_section "Running PFM module"
     [ -f "$FUNC_PFM_MODULE" ] || { echo "ERROR: missing module: $FUNC_PFM_MODULE"; exit 2; }
     run_module "pfm" bash "$FUNC_PFM_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+    if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
+      "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" finish --root "$PFM_DATASET_ROOT"
+    fi
     if [[ "$STOP_AFTER_MODULE" == "pfm" ]]; then
       echo "Stopping after pfm (STOP_AFTER_MODULE=pfm)"
       exit 0
@@ -1205,6 +1458,9 @@ if [[ "${PFM_INFOMAP_UPDATE_ENABLE}" == "1" ]]; then
     print_section "Applying Infomap manual updates"
     [ -f "$FUNC_PFM_INFOMAP_UPDATE_MODULE" ] || { echo "ERROR: missing module: $FUNC_PFM_INFOMAP_UPDATE_MODULE"; exit 2; }
     run_module "pfm_update" bash "$FUNC_PFM_INFOMAP_UPDATE_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+    if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
+      "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" finish --root "$PFM_DATASET_ROOT"
+    fi
     if [[ "$STOP_AFTER_MODULE" == "pfm_update" || "$STOP_AFTER_MODULE" == "infomap_update" ]]; then
       echo "Stopping after pfm_update (STOP_AFTER_MODULE=${STOP_AFTER_MODULE})"
       exit 0

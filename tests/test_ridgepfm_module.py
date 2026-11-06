@@ -55,7 +55,7 @@ class RidgePFMModuleTests(unittest.TestCase):
                 self.assertEqual(len(calls), 1)
                 args = calls[0]
                 self.assertEqual(Path(args[0]).name, 'pfm_ridge_fusion.py')
-                for flag, expected in [('--outdir', str(subject/'func/rest/PFM/RidgePFM')),
+                for flag, expected in [('--outdir', str(subject/'pfm/RidgePFM')),
                                        ('--outfile', 'RidgePFM_VTX'), ('--fc-weight', '1.0'),
                                        ('--spatial-weight', '0.05')]:
                     self.assertEqual(args[args.index(flag)+1], expected)
@@ -70,8 +70,8 @@ class RidgePFMModuleTests(unittest.TestCase):
     def test_confidence_and_ribbon_export_are_separate_opt_in_calls(self):
         calls,_=self.run_module(PFM_RF_CONFIDENCE_ENABLE='1',PFM_RF_VOLUME_ENABLE='1')
         names=[Path(c[0]).name for c in calls]
-        self.assertEqual(names,['pfm_ridge_fusion.py','pfm_ridge_confidence.py']+['pfm_ridge_volume.py']*3)
-        conf=calls[1]
+        self.assertEqual(names,['pfm_ridge_confidence_preflight.py','pfm_ridge_fusion.py','pfm_ridge_confidence.py']+['pfm_ridge_volume.py']*3)
+        conf=calls[2]
         self.assertTrue(conf[conf.index('--outdir')+1].endswith('/RidgePFM/Confidence'))
         self.assertEqual(conf[conf.index('--fc-threshold')+1],'0.7')
         self.assertTrue(calls[-1][calls[-1].index('--cifti')+1].endswith('_SessionAssignmentFrequency.dscalar.nii'))
@@ -88,6 +88,14 @@ class RidgePFMModuleTests(unittest.TestCase):
                                   PFM_RF_OUTFILE='StudyMap')
         for flag, expected in [('--spatial-weight','0.2'), ('--fc-weight','0.8'), ('--outfile','StudyMap')]:
             self.assertEqual(calls[0][calls[0].index(flag)+1], expected)
+
+    def test_subject_dataset_records_resolved_mapping_settings(self):
+        calls, subject = self.run_module(PFM_DATASET_ROOT='enabled', PFM_RF_OUTFILE='StudyMap')
+        record = json.loads((subject / 'pfm/RidgePFM/analysis.json').read_text())
+        self.assertEqual(record['settings']['PFM_RF_OUTFILE'], 'StudyMap')
+        self.assertIn('pfm_ridge_fusion.py', record['source_code_sha256'])
+        self.assertIn('PFM_PRIORS_MAT', record['resources'])
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == '__main__':

@@ -29,11 +29,9 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
 
+DEFAULT_TMS_ROOT = Path("/path/to/study")
 DEFAULT_PRIORS = Path(__file__).resolve().parents[1] / "res0urces" / "Priors.mat"
-DEFAULT_NEIGHBORS = (
-    Path(__file__).resolve().parents[1] / "lib" / "pfm-nsi" /
-    "pfm_nsi" / "models" / "cifti_surf_neighbors_lr_normalwall.npz"
-)
+DEFAULT_NEIGHBORS = Path(__file__).resolve().parent / "pfm-nsi/pfm_nsi/models/cifti_surf_neighbors_lr_normalwall.npz"
 
 
 def component_id(component_value: str) -> int:
@@ -550,7 +548,7 @@ def summarize(metrics: pd.DataFrame) -> pd.DataFrame:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tms-root", type=Path, required=True, help="Study data root for this optional training pilot")
+    parser.add_argument("--tms-root", type=Path, default=DEFAULT_TMS_ROOT)
     parser.add_argument("--priors-mat", type=Path, default=DEFAULT_PRIORS)
     parser.add_argument("--neighbor-table", type=Path, default=DEFAULT_NEIGHBORS)
     parser.add_argument("--features-csv", type=Path, default=Path("outputs/tms_pfm_component_features.csv"))

@@ -2,3 +2,9 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Study-owned profiles belong outside the public release.
+/config/*_config_*.sh
+/config/mefmri_import_*_config.sh
+/config/tans_config_*.yaml
+!/config/mefmri_wrapper_config_container.sh

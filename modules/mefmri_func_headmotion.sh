@@ -109,6 +109,8 @@ AllScans=$(cat "$Subdir"/AllScans.txt) # note: this is used for parallel process
 rm "$Subdir"/AllScans.txt # remove helper file
 
 func () {
+	# GNU parallel starts a new shell; parent error options are not inherited.
+	set -euo pipefail
 	ApplyN4Bias=${APPLY_N4_BIAS:-0}
 	KeepMCF=${HEADMOTION_KEEP_MCF:-0}
 	ReorientFuncToStd=${FUNC_REORIENT_TO_STD:-1}
@@ -122,7 +124,15 @@ func () {
 		BrainMask="$3/func/xfms/$FuncXfmsDir/T1w_func_brain_mask.nii.gz"
 	fi
 
+	# Reject truncated/stale timing BEFORE removing prior outputs.
+	local timing_refs=("$UnprocDir"/"${FuncFilePrefix}"_S*_R*_E1.nii.gz)
+	[[ ${#timing_refs[@]} -eq 1 ]] || { echo "[ERROR] Cannot resolve E1 for timing validation: $UnprocDir" >&2; return 1; }
+	"${PIPELINE_PYTHON:-python3}" "$1/lib/validate_slice_timing.py" --timing "$ProcDir/SliceTiming.txt" --image "${timing_refs[0]}" || return 1
+
 	# Clean up motion-correction workspace from prior runs.
+	# Verify refinement before touching existing outputs.
+	source "$1/lib/mefmri_refinement_consumer.sh"
+	refinement_select "$1" "$ProcDir" || return 1
 	rm -rf "$ProcDir"/MCF #> /dev/null 2>&1
 	rm -rf "$ProcDir"/Rest_AVG_mcf.mat "$ProcDir"/Rest_AVG_mcf.mat+ # remove stale split/mat dirs from prior runs
 	rm -rf "$ProcDir"/vols
@@ -212,7 +222,7 @@ func () {
 	# Read run-specific target and warp pointers.
 	[[ -f "$ProcDir"/IntermediateCoregTarget.txt ]] || { echo "[ERROR] headmotion missing $ProcDir/IntermediateCoregTarget.txt" 1>&2; return 1; }
 	IntermediateCoregTarget=$(cat "$ProcDir"/IntermediateCoregTarget.txt)
-	if [[ "${FUNC_NOFIELDMAP_MODE:-0}" == "1" ]]; then
+	if [[ "${FUNC_NOFIELDMAP_MODE:-0}" == "1" && "$AtlasSpace" == "T1w" ]]; then
 		[[ -f "$ProcDir"/Intermediate2ACPCMat.txt ]] || { echo "[ERROR] headmotion missing $ProcDir/Intermediate2ACPCMat.txt" 1>&2; return 1; }
 		Intermediate2ACPCMat=$(cat "$ProcDir"/Intermediate2ACPCMat.txt)
 		[[ -f "$Intermediate2ACPCMat" ]] || { echo "[ERROR] headmotion missing affine target $Intermediate2ACPCMat" 1>&2; return 1; }
@@ -222,6 +232,7 @@ func () {
 	fi
 
 	# Copy selected echoes for the motion scout. In TOPUP/no-fieldmap mode this
+	refinement_select "$1" "$ProcDir" || return 1
 	# scout intentionally remains in distorted/native EPI space.
 	selected_refs=()
 	selected_tes_seconds=()
@@ -297,6 +308,7 @@ func () {
 	rm "$ProcDir"/MCF.nii.gz # remove .nii output; not used moving forward
 
 	# perform slice time correction; using custom timing file;
+	"${PIPELINE_PYTHON:-python3}" "$1/lib/validate_slice_timing.py" --timing "$ProcDir/SliceTiming.txt" --image "$ProcDir/Rest_AVG.nii.gz" || return 1
 	slicetimer -i "$ProcDir"/Rest_AVG.nii.gz \
 	-o "$ProcDir"/Rest_AVG.nii.gz -r $tr \
 	--tcustom="$ProcDir"/SliceTiming.txt
@@ -322,6 +334,7 @@ func () {
 	 	fi
 
 		# perform slice time correction using custom timing file;
+		"${PIPELINE_PYTHON:-python3}" "$1/lib/validate_slice_timing.py" --timing "$ProcDir/SliceTiming.txt" --image "$ProcDir/${FuncFilePrefix}_E${e}.nii.gz" || return 1
 		slicetimer -i "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz \
 		--tcustom="$ProcDir"/SliceTiming.txt \
 		-r $tr -o "$ProcDir"/"$FuncFilePrefix"_E"$e".nii.gz
@@ -340,13 +353,15 @@ func () {
 
 		# Apply motion + atlas transforms volume-wise.
 		for (( i=0; i<${#images[@]}; i++ )); do
-			if [[ "${FUNC_NOFIELDMAP_MODE:-0}" == "1" ]]; then
+			if [[ "${FUNC_NOFIELDMAP_MODE:-0}" == "1" && "$AtlasSpace" == "T1w" ]]; then
 				combined_mat="${mats["$i"]}_to_acpc.mat"
 				convert_xfm -omat "$combined_mat" -concat "$Intermediate2ACPCMat" "${mats["$i"]}"
 				flirt -in "${images["$i"]}" -ref "$2" -out "${images["$i"]}" \
 				-applyxfm -init "$combined_mat" -interp spline
 				rm -f "$combined_mat"
 			else
+				# Standard-space output needs the selected nonlinear chain even
+				# without a fieldmap; the ACPC affine alone cannot reach MNI.
 				applywarp --interp=spline --in="${images["$i"]}" --premat="${mats["$i"]}" \
 				--warp="$Intermediate2ACPCWarp" --out="${images["$i"]}" --ref="$2"
 			fi
@@ -389,6 +404,7 @@ func () {
 	rm -f "$ProcDir"/Mean*.nii.gz
 	rm -f "$ProcDir"/Bias*.nii.gz
 
+	refinement_mark "$1" "$ProcDir" "$FuncFilePrefix" || return 1
 	# optional cleanup of motion transform workspace to avoid rerun clutter.
 	if [[ "$KeepMCF" -eq 0 ]]; then
 		rm -rf "$ProcDir"/MCF "$ProcDir"/Rest_AVG_mcf.mat "$ProcDir"/Rest_AVG_mcf.mat+

@@ -1,0 +1,9 @@
+{
+  "people": 20,
+  "mean_hours": 4.612961284722222,
+  "median_hours": 3.2847916666666666,
+  "minimum_hours": 1.2010569444444446,
+  "maximum_hours": 14.5018875,
+  "mean_definition": "Equal-participant mean of each participant mean retained development-half duration",
+  "scope": "Retained data per map estimate, not total data per participant"
+}

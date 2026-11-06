@@ -112,6 +112,8 @@ def main() -> int:
     ap.add_argument("--start-session", type=int, default=1)
     ap.add_argument("--func-dirname", default="rest")
     ap.add_argument("--func-file-prefix", default="Rest")
+    ap.add_argument("--input-specs-json", default="", help='Explicit task/prefix/input_tag records for pooled PFM')
+    ap.add_argument("--output-dir", default="", help='Output directory independent of functional task storage')
     ap.add_argument("--input-tag", default="OCME+MEICA+MGTR")
     ap.add_argument("--fd-threshold", type=float, default=0.3)
     ap.add_argument("--out-subdir", default="ConcatenatedCiftis")
@@ -144,11 +146,18 @@ def main() -> int:
     args = ap.parse_args()
 
     subdir = Path(args.study_folder) / args.subject
-    runs = discover_runs(subdir, args.func_dirname, args.start_session)
+    specs = json.loads(args.input_specs_json) if args.input_specs_json else [
+        {'task': args.func_dirname, 'prefix': args.func_file_prefix, 'input_tag': args.input_tag}]
+    runs = []
+    for spec in specs:
+        found = discover_runs(subdir, spec['task'], args.start_session)
+        if not found:
+            raise SystemExit('No runs found for explicitly selected task: ' + spec['task'])
+        runs.extend((spec, s, r, run) for s, r, run in found)
     if not runs:
         raise SystemExit(f"No runs found in {subdir / 'func' / args.func_dirname}")
 
-    outdir = subdir / "func" / args.func_dirname / args.out_subdir
+    outdir = Path(args.output_dir) if args.output_dir else subdir / "func" / args.func_dirname / args.out_subdir
     outdir.mkdir(parents=True, exist_ok=True)
 
     concat_blocks = []
@@ -159,10 +168,11 @@ def main() -> int:
     run_meta = []
     missing_runs = []
 
-    for scan_id, (s, r, run_dir) in enumerate(runs, start=1):
-        in_dt = resolve_run_cifti(run_dir, args.func_file_prefix, args.input_tag)
+    session_run_ids = {}
+    for scan_id, (spec, s, r, run_dir) in enumerate(runs, start=1):
+        in_dt = resolve_run_cifti(run_dir, spec['prefix'], spec['input_tag'])
         if in_dt is None:
-            missing_runs.append(str(run_dir / f"{args.func_file_prefix}_{args.input_tag}.dtseries.nii"))
+            missing_runs.append(str(run_dir / f"{spec['prefix']}_{spec['input_tag']}.dtseries.nii"))
             continue
 
         mcf_par = run_dir / "MCF.par"
@@ -182,6 +192,11 @@ def main() -> int:
             raise ValueError(f"FD length mismatch for {in_dt}: fd={fd.shape[0]} vs time={data.shape[0]}")
 
         data = data.astype(np.float32, copy=False)
+        if args.input_specs_json:
+            if not np.isfinite(data).all():
+                raise ValueError(f"Nonfinite values in selected PFM CIFTI: {in_dt}")
+            if not np.isclose(img.header.get_axis(0).step, tr, atol=1e-8, rtol=0):
+                raise ValueError(f"TR.txt disagrees with CIFTI SeriesAxis in {in_dt}")
         if int(args.demean_runs) == 1:
             # Mirror MATLAB concatenate_scans behavior: demean each run before concat.
             run_mean = np.mean(data, axis=0, keepdims=True, dtype=np.float64).astype(np.float32)
@@ -196,20 +211,31 @@ def main() -> int:
             ref_img = img
         elif data.shape[1] != concat_blocks[0].shape[1]:
             raise ValueError(f"Grayordinate mismatch in {in_dt}")
+        elif args.input_specs_json:
+            if ref_img.header.get_axis(1) != img.header.get_axis(1):
+                raise ValueError(f"BrainModelAxis mismatch in {in_dt}; pooling requires identical grayordinate identities")
+            if not np.isclose(ref_img.header.get_axis(0).step, img.header.get_axis(0).step, atol=1e-8, rtol=0):
+                raise ValueError(f"TR mismatch in {in_dt}; pooled CIFTIs require a common TR")
 
         concat_blocks.append(data)
         # Keep full precision so values near the threshold retain the same mask
         # in memory and when downstream tools reload FD.txt.
         fd_all.append(fd)
         scan_idx.append(np.full(fd.shape[0], scan_id, dtype=np.int32))
+        session_run_ids[s] = session_run_ids.get(s, 0) + 1
         run_meta.append(
             {
                 "scan_id": int(scan_id),
                 "session": int(s),
                 "run": int(r),
+                "task": spec['task'],
+                "prefix": spec['prefix'],
+                "input_tag": spec['input_tag'],
+                "analysis_run": int(session_run_ids[s]) if len(specs) > 1 else int(r),
                 "run_dir": str(run_dir),
                 "input_dtseries": str(in_dt),
                 "n_timepoints": int(fd.shape[0]),
+                "n_retained": int(np.sum(fd < float(args.fd_threshold))) if int(args.censor_by_fd) else int(fd.shape[0]),
                 "fd": fd_settings(tr),
             }
         )
@@ -236,6 +262,8 @@ def main() -> int:
     else:
         keep = np.ones(fd_vec.shape[0], dtype=bool)
     cens = concat[keep, :]
+    if not len(cens):
+        raise ValueError('PFM concatenation retained no frames after censoring')
 
     base = f"{args.func_file_prefix}_{args.input_tag}"
     out_concat = outdir / f"{base}_Concatenated.dtseries.nii"
@@ -252,7 +280,7 @@ def main() -> int:
     (outdir / "ScanInfo.json").write_text(json.dumps(run_meta, indent=2))
     # Explicit frame-aligned session/run identities for confidence and regression.
     from scipy.io import savemat
-    session_run = np.concatenate([np.tile([m['session'], m['run']], (m['n_timepoints'], 1)) for m in run_meta])
+    session_run = np.concatenate([np.tile([m['session'], m['analysis_run']], (m['n_timepoints'], 1)) for m in run_meta])
     savemat(outdir / "ScanIdx.mat", {"ScanIdx": session_run})
     savemat(outdir / "ScanIdx_Censored.mat", {"ScanIdx": session_run[keep]})
 
@@ -262,6 +290,7 @@ def main() -> int:
         "start_session": args.start_session,
         "func_dirname": args.func_dirname,
         "func_file_prefix": args.func_file_prefix,
+        "input_tasks": specs,
         "input_tag": args.input_tag,
         "fd_threshold": args.fd_threshold,
         "fd_method": FD_METHOD,

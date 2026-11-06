@@ -20,6 +20,26 @@ modules. The [software inventory](../SOFTWARE_DEPENDENCIES.txt) records developm
 versions and command checks. Do not assume a newer major version gives identical
 scientific outputs.
 
+## Public templates and project-owned settings
+
+Only generic templates belong in this repository. Keep named project, participant,
+and machine-specific configurations outside it. Repository examples use relative
+resource paths, commands found on PATH, and `/path/to/...` placeholders.
+
+| Template | Edit for your project |
+| --- | --- |
+| `config/mefmri_wrapper_config.sh` | Site environment, task names, acquisition/denoising choices, censoring, and optional PFM/TANS. |
+| `config/mefmri_environment.example.sh` | FSL, FreeSurfer/license, Workbench, MSM, and other installed tools. |
+| `config/mefmri_import_config.sh` or `mefmri_import_raw_config.sh` | Scanner series regexes, expected counts, and import readiness. Choose one, not both. |
+| `config/tans_study.example.yaml` | Optional TANS paths, target/search choices, coil hardware and calibration. |
+| `config/tans_module.example.sh` | Optional TANS fragment to append to a complete processing config. |
+| `config/mefmri_wrapper_config_container.sh` | Container-specific tool activation layered on the processing template. |
+
+The untouched import templates deliberately match no scanner series and stop
+until configured. Processing defaults are examples to review, not a protocol for
+your acquisition. PFM and TANS are optional and start disabled in the public
+processing template. No local study profile is required or supplied.
+
 ## 2. Copy the configuration files
 
 From the repository root:
@@ -89,7 +109,7 @@ Review these in your study's `mefmri.sh`:
 | `DISTORTION_CORRECTION_MODE` | `medic` requires echo-wise phase and warpkit; `topup` requires opposing-PE fieldmaps. Select for your actual acquisition. |
 | `MULTI_ECHO_DENOISE_METHOD` | `meica`, `acompcor`, or `aroma`; echo combination still uses tedana for multi-echo branches. |
 | `SINGLE_ECHO_DENOISE_METHOD` | `acompcor` or `aroma`. |
-| `MEPCA` | Named tedana PCA selection (`kundu` by default), or an intentional component count appropriate for run length. |
+| `MEPCA` | Review tedana PCA selection; the template illustrates a variance fraction (`0.95`). Named methods or counts require intentional selection for your data. |
 | `START_FROM_MODULE`, `STOP_AFTER_MODULE` | Start at `validate`; empty stop runs all enabled stages. |
 | `THREADS_*`, `*_PARALLEL_JOBS` | Match available CPU and memory. |
 | `CONCAT_FD_THRESHOLD` | Review the censoring threshold for your study. |
@@ -190,5 +210,4 @@ Follow the [TANS integration guide](tans-integration.md). Copy the YAML template
 replace all software/coil paths and calibration IDs, choose a target, and only
 then set `TANS_ENABLE=1`. The shell fragment is appended to the complete processing
 config; it is not a replacement for that config. Blank hardware overrides use
-the YAML settings. The template makes no automatic 180-degree coil-equivalence
-assumption; configure orientation handling for the selected coil.
+the YAML settings. Review the example orientation and coil-equivalence settings against the hardware you select.

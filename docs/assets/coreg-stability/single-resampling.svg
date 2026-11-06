@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="290" viewBox="0 0 1100 290" role="img" aria-label="Estimate and compose alignment transforms, then resample original images once">
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="none" stroke="#59636e"/></marker></defs>
+<rect width="1100" height="290" fill="white"/>
+<g font-family="Arial,Helvetica,sans-serif" text-anchor="middle" fill="#1f2328" font-size="19">
+<g fill="#f6f8fa" stroke="#d1d9e0"><rect x="50" y="20" width="300" height="65" rx="10"/><rect x="400" y="20" width="300" height="65" rx="10"/><rect x="750" y="20" width="300" height="65" rx="10"/></g>
+<text x="200" y="48">Motion / distortion transforms</text><text x="200" y="71" font-size="15" fill="#59636e">as applicable to the input image</text>
+<text x="550" y="59">Alignment to anatomy</text><text x="900" y="59">Within-subject refinement</text>
+<g stroke="#59636e" fill="none" stroke-width="1.6" marker-end="url(#arrow)"><path d="M200 85V110H510V130"/><path d="M550 85V130"/><path d="M900 85V110H590V130"/></g>
+<rect x="410" y="132" width="280" height="48" rx="8" fill="#e8f5f2" stroke="#168b80"/><text x="550" y="162">Compose one transform</text>
+<g fill="#f6f8fa" stroke="#d1d9e0"><rect x="50" y="215" width="280" height="55" rx="10"/><rect x="770" y="215" width="280" height="55" rx="10"/></g>
+<rect x="410" y="215" width="280" height="55" rx="10" fill="#e8f5f2" stroke="#168b80"/>
+<text x="190" y="249">Original image data</text><text x="550" y="249">One spatial resampling</text><text x="910" y="249">Aligned output</text>
+<g stroke="#59636e" stroke-width="1.6" marker-end="url(#arrow)"><path d="M330 242H400"/><path d="M690 242H760"/><path d="M550 180V205"/></g>
+</g></svg>

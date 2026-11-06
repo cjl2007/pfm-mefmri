@@ -64,12 +64,21 @@ def _read_text(path: Path, default: str = "") -> str:
 
 def discover_runs(subject_dir: Path, func_name: str, xfms_name: str, distortion_mode: str = "auto") -> list[RunInfo]:
     runs: list[RunInfo] = []
+    bundle = None
+    selected = None
+    if os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent') == 'subject_refined':
+        from mefmri_subject_refinement import verify_alignment
+        bundle = Path(os.environ['COREG_ALIGNMENT_BUNDLE'])
+        record = verify_alignment(bundle, os.environ['COREG_REFERENCE_VERSION'])
+        selected = {r['id'] for r in record['runs']}
     func_root = subject_dir / "func" / func_name
     for run_dir in sorted(func_root.glob("session_*/run_*")):
         match = re.search(r"session_(\d+)/run_(\d+)$", str(run_dir))
         if not match:
             continue
         session, run = (int(match.group(1)), int(match.group(2)))
+        if selected is not None and f'S{session}_R{run}' not in selected:
+            continue
         ref_dir = run_dir / "MEDIC" / "reference"
         distorted = ref_dir / "SBref_distorted.nii.gz"
         unwarped = ref_dir / "SBref_unwarped.nii.gz"
@@ -108,6 +117,8 @@ def discover_runs(subject_dir: Path, func_name: str, xfms_name: str, distortion_
         scan_specific = coreg_dir / f"SBref2acpc_EpiReg+BBR_ScanSpecificFM_S{session}_R{run}.nii.gz"
         avgfm = coreg_dir / f"SBref2acpc_EpiReg+BBR_AvgFM_S{session}_R{run}.nii.gz"
         corrected_acpc = scan_specific if scan_specific.exists() else avgfm if avgfm.exists() else None
+        if bundle is not None:
+            corrected_acpc = bundle / f'S{session}_R{run}' / 'refined_reference.nii.gz'
         if corrected_acpc is None:
             continue
         pe_axis = _read_text(run_dir / "PE.txt", "n/a")
@@ -126,7 +137,10 @@ def discover_runs(subject_dir: Path, func_name: str, xfms_name: str, distortion_
                 pe_axis=pe_axis,
             )
         )
-    return runs
+    if bundle is not None:
+        for run in runs:
+            run.corrected_acpc = bundle / run.tag / 'refined_reference.nii.gz'
+    return sorted(runs, key=lambda run: (run.session, run.run))
 
 
 def load_3d(path: Path, volume: int | None = None) -> np.ndarray:
@@ -140,6 +154,11 @@ def load_3d(path: Path, volume: int | None = None) -> np.ndarray:
 
 
 def resample_run_unwarped_sbref_to_acpc(run: RunInfo, reference: Path, work_dir: Path) -> Path | None:
+    if os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent') == 'subject_refined':
+        from mefmri_subject_refinement import select_run
+        bundle = Path(os.environ['COREG_ALIGNMENT_BUNDLE'])
+        select_run(bundle, run.tag, os.environ['COREG_REFERENCE_VERSION'])
+        return bundle / run.tag / 'refined_reference.nii.gz'
     if run.method != "medic" and run.corrected_acpc is not None:
         return run.corrected_acpc
     if run.unwarped is None:
@@ -194,6 +213,16 @@ def resample_medic_sdc_pair_to_acpc(run: RunInfo, reference: Path, work_dir: Pat
     unwarped = Path(_read_text(run.run_dir / "MEDICUnwarpedSBRef.txt", str(run.unwarped)))
     target = Path(_read_text(run.run_dir / "IntermediateCoregTarget.txt"))
     warp = Path(_read_text(run.run_dir / "Intermediate2ACPCWarp.txt"))
+    reference_premat = None
+    if os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent') == 'subject_refined':
+        from mefmri_subject_refinement import select_run
+        bundle = Path(os.environ['COREG_ALIGNMENT_BUNDLE'])
+        selected = select_run(bundle, run.tag, os.environ['COREG_REFERENCE_VERSION'])
+        target = Path(selected['motion_target'])
+        warp = bundle / run.tag / 'intermediate_to_acpc.nii.gz'
+        reference_premat = selected.get('reference_premat')
+        if not reference_premat:
+            raise ValueError('Refined MEDIC QC requires the saved reference prematrix')
     if not run.distorted.exists() or not unwarped.exists() or not target.exists() or not warp.exists():
         return None
 
@@ -203,6 +232,19 @@ def resample_medic_sdc_pair_to_acpc(run: RunInfo, reference: Path, work_dir: Pat
     distorted_out = work_dir / f"subj_desc-sdc_{run.tag}_distorted_acpc.nii.gz"
     unwarped_out = work_dir / f"subj_desc-sdc_{run.tag}_unwarped_acpc.nii.gz"
 
+    if reference_premat:
+        shutil.copyfile(reference_premat, mat_file)
+    else:
+        estimate_medic_reference_premat(unwarped, target, mat_file, target_file)
+    for in_file, out_file in ((run.distorted, distorted_out), (unwarped, unwarped_out)):
+        subprocess.run(
+            ["applywarp", "--interp=spline", f"--in={in_file}", f"--premat={mat_file}",
+             f"--ref={reference}", f"--out={out_file}", f"--warp={warp}"],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return distorted_out, unwarped_out
+
+
+def estimate_medic_reference_premat(unwarped, target, mat_file, target_file):
     subprocess.run(
         [
             "flirt",
@@ -221,22 +263,6 @@ def resample_medic_sdc_pair_to_acpc(run: RunInfo, reference: Path, work_dir: Pat
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    for in_file, out_file in ((run.distorted, distorted_out), (unwarped, unwarped_out)):
-        subprocess.run(
-            [
-                "applywarp",
-                "--interp=spline",
-                f"--in={in_file}",
-                f"--premat={mat_file}",
-                f"--ref={reference}",
-                f"--out={out_file}",
-                f"--warp={warp}",
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    return distorted_out, unwarped_out
 
 
 def resample_standard_sdc_pair_to_acpc(
@@ -268,6 +294,14 @@ def resample_standard_sdc_pair_to_acpc(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    if os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent') == 'subject_refined':
+        from mefmri_subject_refinement import select_run
+        selected = select_run(os.environ['COREG_ALIGNMENT_BUNDLE'], run.tag, os.environ['COREG_REFERENCE_VERSION'])
+        baseline_mat = work_dir / f'{run.tag}_baseline_sdc_affine.mat'
+        shutil.copyfile(concat_mat, baseline_mat)
+        subprocess.run(['convert_xfm', '-omat', str(concat_mat), '-concat',
+                        selected['correction'], str(baseline_mat)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(
         [
             "flirt",
@@ -710,126 +744,9 @@ def write_run_similarity_matrix(sim: np.ndarray, labels: list[str], out: Path) -
     plt.close(fig)
 
 
-def write_coreg_animation_and_stability(
-    subject_dir: Path,
-    func_name: str,
-    xfms_name: str,
-    func_prefix: str,
-    runs: list[RunInfo],
-    reportlets: Path,
-) -> dict[str, object]:
-    xfm_dir = subject_dir / "func" / "xfms" / xfms_name
-    t1 = xfm_dir / "T1w_acpc_func.nii.gz"
-    t2 = xfm_dir / "T2w_acpc_func.nii.gz"
-    ribbon = xfm_dir / "CorticalRibbon_acpc_func_mask.nii.gz"
-    if not t1.exists() or not ribbon.exists():
-        return {}
-
-    t1d = load_3d(t1)
-    t2d = load_3d(t2) if t2.exists() else None
-    contour = load_3d(ribbon) > 0
-    slices = off_midline_sagittal_slices(t1d, contour)
-    mask = contour | make_mask(t1d)
-
-    anchor_png = reportlets / "subj_desc-coreg_T1wAnchor.png"
-    draw_three_slice_png(t1d, anchor_png, "T1w anatomy anchor", contour=contour, slices=slices, label="T1w anchor")
-
-    sbref_items: list[tuple[RunInfo, np.ndarray, Path]] = []
-    resampled_dir = reportlets / "nifti"
-    for run in runs:
-        sbref_path = resample_run_unwarped_sbref_to_acpc(run, t1, resampled_dir)
-        if sbref_path is None:
-            continue
-        sbref_items.append((run, load_3d(sbref_path), sbref_path))
-
-    frames = [image_from_three_slice(t1d, "Coregistration over time", contour, slices, "T1w anchor")]
-    frame_pngs: list[str] = [anchor_png.name]
-    for run, sbref, _path in sbref_items:
-        label = f"S{run.session} R{run.run} SDC SBRef -> avg + BBR"
-        png = reportlets / f"subj_desc-coreg_{run.tag}_unwarpedSBRefBBR.png"
-        draw_three_slice_png(sbref, png, "Coregistration over time", contour=contour, slices=slices, label=label)
-        frame_pngs.append(png.name)
-        frames.append(image_from_three_slice(sbref, "Coregistration over time", contour, slices, label))
-
-    gif = reportlets / "subj_desc-coreg_unwarpedSBRefBBR_fade.gif"
-    if frames:
-        gif_frames, durations = fade_frames(frames)
-        gif_frames[0].save(
-            gif,
-            save_all=True,
-            append_images=gif_frames[1:],
-            duration=durations,
-            loop=0,
-            optimize=True,
-        )
-
-    metrics: list[dict[str, object]] = []
-    for run, sbref, path in sbref_items:
-        row: dict[str, object] = {
-            "session": run.session,
-            "run": run.run,
-            "unwarped_sbref_acpc_file": str(path),
-            "corr_sbref_to_t1w": corrcoef(sbref, t1d, mask=mask),
-        }
-        if t2d is not None:
-            row["corr_sbref_to_t2w"] = corrcoef(sbref, t2d, mask=mask)
-        metrics.append(row)
-
-    n = len(sbref_items)
-    if n == 0:
-        return {}
-    sim = pairwise_corr_matrix([sbref for _run, sbref, _path in sbref_items], mask=mask)
-    mean_sbref_to_others = mean_similarity_to_others(sim)
-    for row, mean_r in zip(metrics, mean_sbref_to_others):
-        row["mean_sbref_r_to_other_runs"] = mean_r
-
-    labels = [f"S{run.session}R{run.run}" for run, _sbref, _path in sbref_items]
-    sim_png = reportlets / "subj_desc-coreg_runSimilarityMatrix.png"
-    write_run_similarity_matrix(sim, labels, sim_png)
-
-    stability_png = reportlets / "subj_desc-coreg_anatSimilarityOverTime.png"
-    x = np.arange(1, len(metrics) + 1)
-    fig, (ax, ax2) = plt.subplots(
-        2,
-        1,
-        figsize=(7.2, 6.0),
-        facecolor="white",
-        constrained_layout=True,
-        sharex=True,
-    )
-    if metrics:
-        ax.plot(x, [float(m["corr_sbref_to_t1w"]) for m in metrics], marker="o", label="Pearson r to T1w")
-        if "corr_sbref_to_t2w" in metrics[0]:
-            ax.plot(x, [float(m["corr_sbref_to_t2w"]) for m in metrics], marker="o", label="Pearson r to T2w")
-        ax2.plot(
-            x,
-            [float(m["mean_sbref_r_to_other_runs"]) for m in metrics],
-            marker="o",
-            color="#2ca02c",
-            label="Mean SBRef r to other runs",
-        )
-    ax.set_xticks(x, labels=[f"S{m['session']}R{m['run']}" for m in metrics])
-    ax.set_ylabel("Pearson r")
-    ax.set_title("Unwarped SBRef-to-anatomy similarity after coregistration")
-    ax.grid(True, axis="y", alpha=0.25)
-    ax.legend(loc="best")
-    ax2.set_ylabel("Mean pairwise r")
-    ax2.set_xlabel("Scan order")
-    ax2.set_title("Run reference consistency after coregistration")
-    ax2.grid(True, axis="y", alpha=0.25)
-    ax2.legend(loc="best")
-    fig.savefig(stability_png, dpi=150)
-    plt.close(fig)
-
-    return {
-        "anchor_png": anchor_png.name,
-        "fade_gif": gif.name,
-        "frame_pngs": frame_pngs,
-        "similarity_matrix_png": sim_png.name,
-        "stability_png": stability_png.name,
-        "metrics": metrics,
-        "run_similarity": sim.tolist(),
-    }
+def write_coreg_animation_and_stability(subject_dir, func_name, xfms_name, func_prefix, runs, reportlets):
+    from mefmri_coreg_stability import generate
+    return generate(subject_dir, func_name, xfms_name, runs, reportlets, resample_run_unwarped_sbref_to_acpc)
 
 
 def write_coreg(subject_dir: Path, xfms_name: str, reportlets: Path) -> dict[str, str] | None:
@@ -838,13 +755,19 @@ def write_coreg(subject_dir: Path, xfms_name: str, reportlets: Path) -> dict[str
     medic_epi = xfm_dir / "AvgMEDICSBref2acpc_EpiReg+BBR.nii.gz"
     standard_epi = xfm_dir / "AvgSBref2acpc_EpiReg+BBR.nii.gz"
     epi = medic_epi if medic_epi.exists() else standard_epi
+    epi_label = 'EPI after BBR'
+    if os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent') == 'subject_refined':
+        from mefmri_subject_refinement import verify_alignment
+        record = verify_alignment(os.environ['COREG_ALIGNMENT_BUNDLE'], os.environ['COREG_REFERENCE_VERSION'])
+        epi = Path(record['reference_store']) / record['version'] / 'template.nii.gz'
+        epi_label = 'Subject reference'
     ribbon = xfm_dir / "CorticalRibbon_acpc_func_mask.nii.gz"
     if not t1.exists() or not epi.exists():
         return None
     t1d = load_3d(t1)
     epid = load_3d(epi)
     rows = [("T1w functional grid", t1d, "gray", False)]
-    rows.append(("EPI after BBR", epid, "gray", False))
+    rows.append((epi_label, epid, "gray", False))
     contour = load_3d(ribbon) > 0 if ribbon.exists() else None
     out = reportlets / "subj_desc-coreg_avgReference.png"
     slices = off_midline_sagittal_slices(t1d, contour) if contour is not None else None
@@ -923,18 +846,18 @@ def write_coreg_html(
     pearson_html = ""
     if coreg_time:
         gif_html = (
-            "<section><h2>Runwise Unwarped SBRef+BBR Alignment to Anatomy</h2>"
+            "<section><h2>Brain-Focused Within-Subject Alignment</h2>"
             f"<img src='reportlets/{html.escape(str(coreg_time['fade_gif']))}' alt='Runwise unwarped SBRef BBR fade animation'>"
             "</section>"
         )
         matrix_html = (
-            "<section><h2>Run-to-Run Similarity Matrix</h2>"
-            f"<img src='reportlets/{html.escape(str(coreg_time['similarity_matrix_png']))}' alt='Run-to-run unwarped SBRef similarity matrix'>"
+            "<section><h2>Pairwise RMS Difference Matrix</h2>"
+            f"<img src='reportlets/{html.escape(str(coreg_time['similarity_matrix_png']))}' alt='Pairwise normalized scan-reference RMS differences'>"
             "</section>"
         )
         pearson_html = (
-            "<section><h2>Pearson Registration Stability</h2>"
-            f"<img src='reportlets/{html.escape(str(coreg_time['stability_png']))}' alt='Unwarped SBRef Pearson similarity over time'>"
+            "<section><h2>Within-Subject RMS Stability</h2><p>Lower values indicate more similar reference images. Curves show neighboring scans and each scan versus all others. Session transitions are marked; within-session and between-session differences are summarized. Values also depend on contrast and noise, and are not displacement in millimeters. Movies use one fixed brain mask with a 3 mm display margin.</p>"
+            f"<img src='reportlets/{html.escape(str(coreg_time['stability_png']))}' alt='Normalized scan-reference RMS differences'>"
             "</section>"
         )
 
@@ -961,6 +884,7 @@ section img + img {{ margin-top: 16px; }}
 <header>
 <h1>{html.escape(subject_dir.name)} {html.escape(func_name)} Coreg QC</h1>
 <div>Experimental fMRIPrep-style coregistration visuals.</div>
+<div>Alignment: {html.escape(os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent'))}; reference version: {html.escape(os.environ.get('COREG_REFERENCE_VERSION', '') or 'not applicable')}.</div>
 </header>
 <main>
 <section><a class="button" href="{html.escape(fieldmap_href)}">Open Fieldmap/SDC Report</a></section>

@@ -1,3 +1,4 @@
+# PFM paths use {pfm_dir}: subject-level pfm/RidgePFM by default, with legacy fallback.
 # Copy to a study-owned location and edit every /opt path for your installation.
 # Full guidance: pfm-tans/docs/CONFIGURATION.md and docs/tans-integration.md here.
 # These hardware choices are an example, not universal study defaults.

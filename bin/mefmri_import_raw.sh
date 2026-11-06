@@ -7,7 +7,7 @@
 #   mefmri_import_raw.sh --raw-list FILE --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
 #   mefmri_import_raw.sh --raw-parent DIR --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
 #
-# Example (copy and edit config/mefmri_import_config.sh first):
+# Example:
 #   bash bin/mefmri_import_raw.sh \
 #     /path/to/raw_dicom_export \
 #     /path/to/study/ME001 \
@@ -33,18 +33,18 @@ Usage:
   mefmri_import_raw.sh --raw-list FILE --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
   mefmri_import_raw.sh --raw-parent DIR --subject-dir SUBJECT_DIR [CONFIG_FILE] [--session N] [--dry-run] [--nordic]
 
-Example (copy and edit config/mefmri_import_config.sh first):
+Example:
   bash bin/mefmri_import_raw.sh \
     /path/to/raw_dicom_export \
     /path/to/study/ME001 \
-    /path/to/study/config/import.sh \
+    config/mefmri_import_config.sh \
     --dry-run
 
 Multiple visits:
   bash bin/mefmri_import_raw.sh \
-    --raw-parent "/path/to/raw/SUB001" \
-    --subject-dir /path/to/study/SUB001 \
-    /path/to/study/config/import.sh \
+    --raw-parent "/path/to/raw/Subject001/visits" \
+    --subject-dir /path/to/study/Subject001 \
+    config/mefmri_import_raw_config.sh \
     --nordic
 EOF
 }
@@ -222,7 +222,12 @@ for raw_dir in "${RAW_DICOM_DIRS[@]}"; do
 done
 [[ -f "$CONFIG_FILE" ]] || { echo "ERROR: missing config file: $CONFIG_FILE" >&2; exit 2; }
 
+export PFM_MEFMRI_ROOT="$MEDIR"
 source "$CONFIG_FILE"
+if [[ "${IMPORT_CONFIG_READY:-1}" != "1" ]]; then
+  echo "ERROR: configure the import template for your scanner (counts and series regexes), then set IMPORT_CONFIG_READY=1 in your study-owned copy." >&2
+  exit 2
+fi
 
 serialize_array() {
   local array_name="$1"

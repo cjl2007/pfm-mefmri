@@ -1,14 +1,6 @@
 ME-fMRI Pipeline Software Dependencies
 =====================================
 
-Getting started
----------------
-
-Start with docs/dependencies.md for installation links and core versus optional
-requirements, then docs/configuration.md for study-owned config setup. Clone with
---recurse-submodules (or run git submodule update --init --recursive) for pfm-nsi.
-Example environment names are configurable, not environments installed by this repo.
-
 Overview
 --------
 
@@ -50,7 +42,7 @@ Bundled PFM-NSI package:
   - `matplotlib`
 
 
-2) Recorded Development Stack
+2) Default Tested Stack
 -----------------------
 
 A. Shell / command-line tools
@@ -113,7 +105,7 @@ E. MEDIC / warpkit environment
   - `wk-compute-jacobian`
 
 Default warpkit-related config:
-- The template selects `DISTORTION_CORRECTION_MODE="medic"`; review this for your acquisition.
+- `DISTORTION_CORRECTION_MODE="topup"` by default.
 - MEDIC is supported when per-echo phase images are present. If MEDIC is
   requested but phase companions are absent, the runner falls back to TOPUP
   when AP/PA field maps are available.
@@ -195,8 +187,8 @@ Required commands used by the default full pipeline:
 - `ica_reclassify`
 - `ffmpeg`
 - `ffprobe`
-- `wb_surfer2` for CrawlingSeedFC movie QC, either on PATH or resolved through
-  `CRAWLING_SEED_FC_WB_SURFER2` / `CRAWLING_SEED_FC_WB_SURFER2_CONDA_ENV`
+- `wb_surfer2` for CrawlingSeedFC movie QC, unless configured through
+  `CRAWLING_SEED_FC_WB_SURFER2_CONDA_ENV`
 
 Compatibility note:
 - `bin/mefmri_pipeline.sh` auto-creates a `tkregister` compatibility shim when
@@ -236,7 +228,8 @@ Anatomical modules:
   - SimNIBS CHARM binary
   - FSL (`fslmaths`)
   - Python (`python3`)
-  - `CHARM_BIN=""` resolves charm on PATH; set an explicit executable path if needed.
+  - Configured CHARM path in the default config:
+    - `/path/to/SimNIBS-4.5/bin/charm`
 
 Functional modules:
 - `modules/mefmri_func_fieldmaps.sh`

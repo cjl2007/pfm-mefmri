@@ -1,7 +1,7 @@
 {
-  "publication_status": "local review; ME01 RidgePFM and spatial-weight examples refreshed 2026-10-21",
+  "publication_status": "local review; workflow, WTA/softmax, trade-off and parameter-explorer update 2026-11-04",
   "source_data_modified": false,
-  "new_fmri_processing_or_fem_simulations": true,
+  "new_fmri_processing_or_fem_simulations": false,
   "assets": [
     {
       "file": "qc-coreg-bbr.png",
@@ -112,16 +112,282 @@
       "sha256": "dfdc607420cf0e499df4255c8ebf72befd4212e6a928e03b3223fcb06d622172"
     },
     {
-      "file": "me01-coreg-run-template-rows.gif",
-      "kind": "ME01 longitudinal coregistration animation",
-      "description": "44 run-template-refined SBRefs above fixed T1 anatomy; fixed tissue contours; 5 fps; no additional anatomical anchor.",
-      "sha256": "91bd31a3c7d866a5b54216f2d4b80816d05a237c3eaf28b5ec94601d61f69a17"
+      "file": "me01-coreg-transition-highlights.png",
+      "kind": "documentation figure",
+      "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
+      "sha256": "3e3ab8e94748a04ae66d88aa3ddf1729fc4da41bea79ac6b6df02f7e2cfc51c0"
+    },
+    {
+      "file": "me01-coreg-before-after.gif",
+      "kind": "documentation figure",
+      "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
+      "sha256": "fa1a7a3429071a63bdfafb0b952adbde8b2715ae0b877a415579dbc1ebeb688a"
+    },
+    {
+      "file": "me01-coreg-before-after.mp4",
+      "kind": "documentation figure",
+      "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
+      "sha256": "52f292c1f484582caf552810f87bbb2ccb257e6be6d2fdca658d31626e997a22"
+    },
+    {
+      "file": "pipeline-journey.svg",
+      "kind": "documentation figure",
+      "description": "Data journey: HCP anatomy and functional preprocessing; PFM to TANS; a separate branch for individual-focused analyses and longitudinal brain\u2013behavior studies.",
+      "sha256": "caae7003ff640e0c18e74240c25cff4b70fe91bec28cd1dda032330648c87383"
+    },
+    {
+      "file": "me01-coreg-transition-highlights.gif",
+      "kind": "documentation figure",
+      "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
+      "sha256": "fa2df0c2eb736beb2129828ae0dd941d1e0c70953146b9a4acb7ad27df638e49"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_full_axis.png",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "05765b4a359ac8e940b4c31aaafa2ea8c8588fb8bd0d809a4beb67ea21ff2b16"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_clinical.svg",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "a4d5fc3656b4b7d10550bea8a635f3fa712be198ca8cae3cddf49d5d563e9b84"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_clinical.pdf",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "af5b21f3b2459a87329f118b32c3e6b99640f998fed0318944898224155e15b3"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_clinical_full_axis.pdf",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "399f970505cfbeb1d9da5bd20e32ced42718e365231bcdf6a1963aeb0cab58a9"
+    },
+    {
+      "file": "ridgepfm/ridgepfm-explorer-poster.png",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "2ff063b41c950e0a6ea9f428b79354ddc58c59b7f23241760f125f27130a354e"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_clinical.png",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "8ab8bf87eac2dc70d67f2e4d151d3adc8a518eeee73079b6747e6e17124f057a"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_clinical_full_axis.png",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "3775cf95c8eb145eb596e92ee6598fa5b3431b377e1ce00b3d219ce04a30cca3"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff.pdf",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "09d044945f85df9303e660905f0f7d4cc1ac20af31ca60c5faa1cb91f41c4058"
+    },
+    {
+      "file": "ridgepfm/taxonomy-explorer-poster.png",
+      "kind": "documentation figure",
+      "description": "Lossless ME01 parcellation/network selector preview with saved taxonomy colors.",
+      "sha256": "2ff063b41c950e0a6ea9f428b79354ddc58c59b7f23241760f125f27130a354e"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_full_axis.pdf",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "b737b917d218d05921769aad477efc5f97721aacb0f716b6b9c1f168715fdaea"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff.svg",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "dfd5c4f5b5c1772025a6e462a0e5923b0d6c048aef9f30ef5b8d84673fc4db1b"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_clinical_full_axis.svg",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "38fdc18aebaa89ee1306f85a138410ddb09fe0bb3ea6324b212578e2737045fa"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff.png",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "315df83df2a556f45aa8c9f2181dc919bcb2c7eca90faaf9976c1d853c93d705"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_tradeoff_full_axis.svg",
+      "kind": "documentation figure",
+      "description": "ME01 parameter illustration or frozen N20 trade-off figure; no default marker.",
+      "sha256": "592a3f1ded0d82566af97ac68b0023f0711537eca295e08c5d852e1079fdba84"
+    },
+    {
+      "file": "tans-search-replay.gif",
+      "kind": "published TANS search movie",
+      "description": "Unmodified published pfm-tans Salience search replay, on the separate targeting page.",
+      "source_url": "https://github.com/cjl2007/pfm-tans/blob/main/docs/assets/sal-search-replay.gif",
+      "sha256": "05f688b6f97e4addff8b65d77156ff0101d620277a642b1b3caa42e6e2b7346f"
+    },
+    {
+      "file": "tans-search-replay.mp4",
+      "kind": "published TANS search movie",
+      "description": "Unmodified published pfm-tans Salience search replay, on the separate targeting page.",
+      "source_url": "https://github.com/cjl2007/pfm-tans/blob/main/docs/assets/sal-search-replay.mp4",
+      "sha256": "0733aa95f268baabcfdb818e6fe139fee587227494670962a48a89987e2cf890"
+    },
+    {
+      "file": "coreg-stability/individual_4_matched_alignment.gif",
+      "kind": "Reference-stability demonstration",
+      "sha256": "36a9e304df0fc450f7016fd284224f2b4515e68fffe4823af33a2957e1eb7439",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/individual_5_matched_alignment.gif",
+      "kind": "Reference-stability demonstration",
+      "sha256": "f09c4a84e0121dcb94b7c3817a78e90b97dde73e9fad181b9e2d24d7c95bc0dc",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/individual_2_matched_alignment.gif",
+      "kind": "Reference-stability demonstration",
+      "sha256": "f12be882a76c420cfa8f069a7661703e4587098085b82058024d318d598314dd",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/six_subject_stability.png",
+      "kind": "Reference-stability demonstration",
+      "sha256": "8d74563b63290f5bcf8570b929f5ae53fb52ec4500509c18a1bde95a667b64f2",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/individual_3_matched_alignment.gif",
+      "kind": "Reference-stability demonstration",
+      "sha256": "fff0a980487100aafc6983f23b1d7fa3c05119452f574055b2c68f162066ce17",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/subject_summaries.csv",
+      "kind": "Reference-stability demonstration",
+      "sha256": "678c81782167038bac4385b6ac9abd2c2fc1b684043ee04c1320cd13645c2734",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/six_subject_stability.pdf",
+      "kind": "Reference-stability demonstration",
+      "sha256": "27b8eb901000336a699729bc97dc92ab3bcdde16e500a1cdfbf77d3b6518d1d4",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/individual_6_matched_alignment.gif",
+      "kind": "Reference-stability demonstration",
+      "sha256": "25c56202c352e5e935a98120043900577cfbd74e90ddfc46290f8e63e493bf80",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/individual_1_matched_alignment.gif",
+      "kind": "Reference-stability demonstration",
+      "sha256": "2e422012883d55db6cb5ff63634593c656b0b944d0ad2bd3d313a150dc17bec5",
+      "description": "Matched native-reference images; descriptive in-sample QC."
+    },
+    {
+      "file": "coreg-stability/refinement_spread.pdf",
+      "kind": "Refinement off/on spread comparison",
+      "sha256": "7beef9035c0192135a586219bc11a1f1c13c36350d64725e9df18ac8a5889bae",
+      "description": "Per-scan median pairwise normalized reference RMS; descriptive within-individual distributions."
+    },
+    {
+      "file": "coreg-stability/refinement_spread.png",
+      "kind": "Refinement off/on spread comparison",
+      "sha256": "76036619c9bf122a827eb7b7033d7b102228bb574cddf34b7a9f0dfe864fe574",
+      "description": "Per-scan median pairwise normalized reference RMS; descriptive within-individual distributions."
+    },
+    {
+      "file": "coreg-stability/refinement_spread.csv",
+      "kind": "Refinement off/on spread comparison",
+      "sha256": "653f56265120e227411f494dc92a212634ce7aab0e28aac57008d53127f408e6",
+      "description": "Per-scan median pairwise normalized reference RMS; descriptive within-individual distributions."
+    },
+    {
+      "file": "coreg-stability/refinement_stability_sharpness.pdf",
+      "kind": "Single-resampling workflow and spatial-texture diagnostic",
+      "sha256": "4a1ab8fc18714882b012457a4e7e6696b37780d14d25af5e7b0a956cd8c066da",
+      "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
+    },
+    {
+      "file": "coreg-stability/refinement_stability_sharpness.png",
+      "kind": "Single-resampling workflow and spatial-texture diagnostic",
+      "sha256": "03de1f51873b5da61256d21bc23bb38c22ff685ea6a4961b5f385b4fbbfbb11a",
+      "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
+    },
+    {
+      "file": "coreg-stability/refinement_sharpness.csv",
+      "kind": "Single-resampling workflow and spatial-texture diagnostic",
+      "sha256": "8ed927fe60892e3bb06e6a4c3c95de678396870cf2eb27cd19ccd51f36abf644",
+      "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
+    },
+    {
+      "file": "coreg-stability/single-resampling.svg",
+      "kind": "Single-resampling workflow and spatial-texture diagnostic",
+      "sha256": "776ac0ba7e47846c2d0bc6d9c4b7d4adf622a307d560913d9f0c3b9d1f51940f",
+      "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
     },
     {
       "file": "me01-coreg-run-template-rows.mp4",
-      "kind": "ME01 longitudinal coregistration animation",
-      "description": "44 run-template-refined SBRefs above fixed T1 anatomy; fixed tissue contours; 5 fps; no additional anatomical anchor.",
-      "sha256": "d82424902e46145f1692a219acc812f32dafbfba3168fe7eb0736c40ed1129a3"
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "d82424902e46145f1692a219acc812f32dafbfba3168fe7eb0736c40ed1129a3",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "me01-coreg-run-template-rows.gif",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "91bd31a3c7d866a5b54216f2d4b80816d05a237c3eaf28b5ec94601d61f69a17",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "me01-coreg-highlight-provenance.json",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "a0c2b28515ee9a84f8d924ebbdb064269a0bf816a44f3edca1effae30ee6cc83",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/data/duration_summary.json",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "fb165c8c5fc4331e450d553776562d5ade3299b9a1defd18e71d877081fa4b2d",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/data/participant_estimates.csv",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "3669ea42f0a2f6d8dbd2c0cdbcb37540bb791a02713c33a48278fc530ec0fc75",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/data/dense_durations.csv",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "90ca05765a7d2101adf8cdf824f6f5b851d237fb54b683972af824911b764891",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/data/group_estimates.csv",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "9d85efd647863392dd07dd2498c4873e7ab09514153897e9747d3c9ed945d437",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/data/figure_methods.json",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "dd2ebdbc138f549167bf449783b56b14766b72b5d8292496ddb5e0cda7c37856",
+      "description": "Public documentation asset; local installation paths excluded."
+    },
+    {
+      "file": "ridgepfm/data/render_receipt.json",
+      "kind": "Reviewed workflow figure or reproducibility metadata",
+      "sha256": "ffd89e3d3d58ee71e6f1a261bef2506ba8fccbf501c1d60cb5f29295ed51d6ff",
+      "description": "Public documentation asset; local installation paths excluded."
     }
   ]
 }

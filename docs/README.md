@@ -12,6 +12,8 @@ copied into a GitHub Wiki, or linked from a shorter top-level README.
 
 ## Start Here
 
+- [Data organization](data-organization.md): validate requirements and example rest, Motor, and WorkingMemory inputs and outputs.
+
 - [Quick Start](quick-start.md): minimal setup, expected input layout, and a
   first run.
 - [Pipeline Overview](pipeline-overview.md): processing stages, module order,
@@ -26,7 +28,7 @@ copied into a GitHub Wiki, or linked from a shorter top-level README.
 - [Individual and longitudinal studies](individual-longitudinal-studies.md):
   analysis epochs, pooled references, repeated observations, and intervention provenance.
 - [TANS integration](tans/README.md): optional final-module setup, configuration, and input selection.
-- [Output gallery](output-gallery.md): illustrated QC, mapping, and stimulation outputs.
+- [Output gallery](output-gallery.md): illustrated alignment, signal-quality, NSI, and seed-FC review.
 - [Local release draft](release-2026-09-21.md): included changes and publication checks.
 
 ## What The Pipeline Does
@@ -57,8 +59,15 @@ Core capabilities include:
 
 ## Figure Assets
 
-The [output gallery](output-gallery.md) now includes representative QC reports,
-seed FC, individual maps, continuous representations, and TANS outputs.
+The [quality-control gallery](output-gallery.md) contains alignment, signal-quality,
+NSI, and seed-FC examples. Network maps and targeting examples have their own
+[RidgePFM](ridgepfm-parameters.md) and [TMS](tans/README.md) pages.
 [Asset notes](assets/README.md) distinguish unchanged reportlets, display-only
 re-renderings, and curated TANS illustrations. Participant-derived assets need
 sharing-permission review before public distribution.
+
+## Visual guides
+
+- [RidgePFM parameters and interactive maps](ridgepfm-parameters.md)
+- [Parcellation and softmax selector](ridgepfm-taxonomy-explorer.html?raw=1)
+- [Longitudinal alignment: anatomy and within-participant consistency](longitudinal-alignment.md)

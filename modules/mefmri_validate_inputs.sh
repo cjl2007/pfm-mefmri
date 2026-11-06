@@ -339,6 +339,8 @@ if [[ -n "$TEDANA_PCA_NCOMPS" && "$TEDANA_PCA_NCOMPS" -lt 1 ]]; then
   err "Numeric MEPCA must request at least one component, got: $MEPCA"
 fi
 
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/pfm_confidence_preflight.sh" "$SubjectDir" "$FuncDirName" "$StartSession"
+
 check_anat
 check_func
 check_fieldmaps

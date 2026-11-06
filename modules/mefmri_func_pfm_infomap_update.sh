@@ -11,7 +11,10 @@ _unused_prefix="${6:-${FUNC_FILE_PREFIX:-Rest}}"
 
 SubjectDir="${StudyFolder}/${Subject}"
 PFM_PYTHON="${PFM_PYTHON:-${PIPELINE_PYTHON:-python3}}"
-PFM_ROOT_DIR="${PFM_OUTDIR:-${SubjectDir}/func/${FuncDirName}/PFM}"
+PFM_ROOT_DIR="${PFM_OUTDIR:-${SubjectDir}/pfm}"
+if [[ -z "${PFM_OUTDIR:-}" && ! -d "$PFM_ROOT_DIR" && -d "${SubjectDir}/func/${FuncDirName}/PFM" ]]; then
+  PFM_ROOT_DIR="${SubjectDir}/func/${FuncDirName}/PFM"
+fi
 PFM_INFOMAP_DIR="${PFM_ROOT_DIR}/Infomap"
 
 PFM_PRIORS_MAT="${PFM_PRIORS_MAT:-${NETWORK_PRIORS_MAT:-${MEDIR}/res0urces/Priors.mat}}"
@@ -36,8 +39,12 @@ L_MID="${SubjectDir}/anat/T1w/fsaverage_LR32k/${Subject}.L.midthickness.32k_fs_L
 R_MID="${SubjectDir}/anat/T1w/fsaverage_LR32k/${Subject}.R.midthickness.32k_fs_LR.surf.gii"
 COMMUNITIES="${PFM_INFOMAP_DIR}/Bipartite_PhysicalCommunities.dtseries.nii"
 if [[ -z "$PFM_INPUT_CIFTI" ]]; then
-  FD_TAG="${PFM_FD_THRESHOLD//./p}"
-  PFM_INPUT_CIFTI="${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}/${_unused_prefix}_${PFM_INPUT_TAG}_Concatenated+FDlt${FD_TAG}.dtseries.nii"
+  if [[ -f "${PFM_ROOT_DIR}/${PFM_CONCAT_OUT_SUBDIR}/PFMPrepSummary.json" ]]; then
+    PFM_INPUT_CIFTI="$("${PIPELINE_PYTHON:-python3}" -c 'import json,sys; print(json.load(open(sys.argv[1]))["out_censored"])' "${PFM_ROOT_DIR}/${PFM_CONCAT_OUT_SUBDIR}/PFMPrepSummary.json")"
+  else
+    FD_TAG="${PFM_FD_THRESHOLD//./p}"
+    PFM_INPUT_CIFTI="${PFM_CONCAT_DIR:-${SubjectDir}/func/${FuncDirName}/${PFM_CONCAT_OUT_SUBDIR}}/${_unused_prefix}_${PFM_INPUT_TAG}_Concatenated+FDlt${FD_TAG}.dtseries.nii"
+  fi
 fi
 
 [[ -d "$PFM_INFOMAP_DIR" ]] || { echo "ERROR: missing Infomap output dir: $PFM_INFOMAP_DIR"; exit 2; }

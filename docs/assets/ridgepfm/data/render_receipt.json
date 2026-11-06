@@ -1,0 +1,76 @@
+{
+  "display_labels": {
+    "x": "Network-map reproducibility",
+    "y": "Individual-specific FC information retained",
+    "y_subtitle": "% of reliable departures recovered",
+    "meaning": "Plain-language shorthand for reliable atlas-departure sensitivity; underlying endpoint unchanged"
+  },
+  "duration_summary": {
+    "people": 20,
+    "mean_hours": 4.612961284722222,
+    "median_hours": 3.2847916666666666,
+    "minimum_hours": 1.2010569444444446,
+    "maximum_hours": 14.5018875,
+    "mean_definition": "Equal-participant mean of each participant mean retained development-half duration",
+    "scope": "Retained data per map estimate, not total data per participant"
+  },
+  "recovery_definition": {
+    "numerator": "Cortical area of reliable held-out atlas departures assigned the identical alternative network in the test map",
+    "denominator": "ALL cortical area of reliable held-out atlas departures; candidate unmapped locations stay in the denominator",
+    "reference_criterion": "Eligible locations with identical direct-Pearson labels in session-disjoint held-out A and B and their pooled map, differing from the fixed atlas",
+    "pooled_map_role": "Aggregate consistency check, not a third independent replication",
+    "weighting": "Cortical surface area; compute within each sample/split, then aggregate within participant, then equally across participants",
+    "not_precision": "The denominator is not the departures detected by the candidate map",
+    "not_truth": "Reference-supported canonical FC evidence, not biological ground truth"
+  },
+  "illustrative_regions": {
+    "clinical": {
+      "lambda": [
+        1,
+        3,
+        10,
+        30
+      ],
+      "spatial": [
+        0.025,
+        0.05
+      ]
+    },
+    "dense": {
+      "lambda": [
+        3,
+        10,
+        30
+      ],
+      "spatial": [
+        0,
+        0.025
+      ]
+    }
+  },
+  "region_interpretation": "Padded bounding boxes around selected tested candidate means; not confidence bounds, optimality claims, or validated continuous interpolation",
+  "people": 20,
+  "primary_unit": "participant; repeated samples aggregated within participant",
+  "FC_weight": 1,
+  "default": {
+    "lam": 1,
+    "spatial": 0.05
+  },
+  "references": {
+    "agreement": "Independent held-data map with identical parameters",
+    "recovery": "Repeated independent Pearson-template reference identities; fixed-atlas departures, plus pooled-reference consistency"
+  },
+  "notes": [
+    "Reference-supported departures are not biological ground truth. The prior-only control uses FC weight0.",
+    "Stronger ridge approaches the Pearson projection direction; reference alignment can contribute to recovery gains.",
+    "Primary short-acquisition evidence is25\u201330 retained minutes;10\u201320 minutes is not a directly validated full-grid regime.",
+    "High-data halves vary72\u2013870 minutes; this is not a controlled duration sweep."
+  ],
+  "group_mean_checks": 180,
+  "maximum_mean_error": 2.220446049250313e-16,
+  "source_files_sha256": {
+    "group_estimates.csv": "9d85efd647863392dd07dd2498c4873e7ab09514153897e9747d3c9ed945d437",
+    "participant_estimates.csv": "3669ea42f0a2f6d8dbd2c0cdbcb37540bb791a02713c33a48278fc530ec0fc75",
+    "docs/assets/ridgepfm/data/dense_durations.csv": "90ca05765a7d2101adf8cdf824f6f5b851d237fb54b683972af824911b764891"
+  }
+}

@@ -27,21 +27,10 @@
 # =============================================================================
 # 1) Core Paths and Environment
 # =============================================================================
-# The launcher supplies PFM_MEFMRI_ROOT even when this config is outside the repo.
-# If sourcing this file directly, replace the next line with MEDIR="/path/to/pfm-mefmri".
-MEDIR="${PFM_MEFMRI_ROOT:-}"
-if [[ -z "$MEDIR" ]]; then
-  MEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
-if [[ ! -f "$MEDIR/bin/mefmri_pipeline.sh" ]]; then
-  echo 'Set MEDIR to the pfm-mefmri installation, or load this config through bin/mefmri_pipeline.sh.' >&2
-  return 2
-fi
+CONFIG_DEFAULT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MEDIR="${PFM_MEFMRI_ROOT:-${MEDIR:-$CONFIG_DEFAULT_ROOT}}"
 EnvironmentScript="$MEDIR/HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh"
-# For a study-owned environment setup, replace EnvironmentScript above with its path.
-# Start from config/mefmri_environment.example.sh; see docs/configuration.md.
-CHARM_BIN=""                    # empty: resolve charm on PATH; otherwise set installation path
-FS_LICENSE_FILE=""             # optional override; otherwise use the installed FreeSurfer license
+CHARM_BIN="charm" # Resolve from PATH, or set your installation path.
 
 # Repository resources used by downstream modules. Leave these repository-
 # relative defaults unless your resource bundle lives somewhere else.
@@ -58,8 +47,8 @@ START_FROM_MODULE="validate"   # validate|anat_hcp|anat_charm|fieldmaps|coreg|he
 STOP_AFTER_MODULE=""           # "" to run full chain
 
 # Functional naming and reference space
-FUNC_DIRNAME="rest"              # task folder under func/unprocessed/; use "All" to loop over discovered tasks
-FUNC_FILE_PREFIX="Rest"
+FUNC_DIRNAME=("rest")
+FUNC_FILE_PREFIX=("Rest")
 FUNC_XFMS_DIRNAME=""             # empty => follow FUNC_DIRNAME; set explicitly only if you need a shared xfm namespace
 AtlasTemplate="$MEDIR/res0urces/MNI152_T1_2mm.nii.gz"
 AtlasSpace="T1w"                 # T1w|MNINonlinear
@@ -81,6 +70,13 @@ CONCAT_ENABLE=1
 QC_OUTPUT_DIRNAME="QC"           # functional QC root: func/<FUNC_DIRNAME>/<QC_OUTPUT_DIRNAME>
 QC_VALIDATION_ENABLE=1           # 1 writes visual input validation summary under QC/Validation
 COREG_SDC_QC_ENABLE=1            # 1 writes Coreg and Fieldmap/SDC QC reports
+COREG_ALIGNMENT_STRATEGY="independent" # independent|subject_refined
+COREG_REFERENCE_POLICY="rebuild"       # rebuild all sessions | frozen for new sessions
+COREG_REFERENCE_VERSION=""             # saved immutable version for frozen/resume
+COREG_ALIGNMENT_BUNDLE=""              # saved completed bundle for headmotion/later resume
+COREG_REFERENCE_ROOT=""                # blank: original xfm group's SubjectRefinement directory
+COREG_REFERENCE_MEMBERS=""             # optional complete membership file; not a run filter
+# See docs/subject_refined_coregistration.md before switching strategies.
 COREG_SDC_QC_STRICT=0            # 1 makes Coreg/Fieldmap QC report failure abort the pipeline
 MOTION_GRAYPLOTS_QC_ENABLE=1     # 1 writes MotionGrayPlots QC after denoise/MGTR outputs exist
 MOTION_GRAYPLOTS_QC_STRICT=0     # 1 makes MotionGrayPlots report failure abort the pipeline
@@ -120,7 +116,7 @@ CHARM_WRITE_CORTICAL_RIBBON=1           # 1 writes anat/T1w/CorticalRibbon.nii.g
 # -----------------------------------------------------------------------------
 # 3b) Functional Distortion Correction / Coreg / Headmotion
 # -----------------------------------------------------------------------------
-DISTORTION_CORRECTION_MODE="medic" # topup|direct_b0|medic|none ; medic requires per-echo phase images and falls back to topup when AP/PA fieldmaps exist
+DISTORTION_CORRECTION_MODE="topup" # topup|direct_b0|medic|none ; medic requires per-echo phase images and falls back to topup when AP/PA fieldmaps exist
 FM_PE_MODE="infer"               # infer|config
 FM_AP_PE_DIR=""                  # e.g. j-
 FM_PA_PE_DIR=""                  # e.g. j
@@ -167,7 +163,7 @@ VOL2SURF_CIFTI_STAMP=""          # optional non-canonical suffix for experimenta
 TEDANA_ENV="mefmri_env"          # conda environment used for tedana/ME-ICA
 TEDANA_ACTIVATE_MODE="conda_activate" # conda_activate|conda_run|direct
 TEDANA_COMPAT_MODE="modern"
-MEPCA="kundu"                  # named tedana PCA selection; set a component count only after reviewing run lengths
+MEPCA="0.95"
 MaxIterations=500
 MaxRestarts=5
 TEDANA_VERBOSE=0
@@ -180,7 +176,7 @@ MEICA_RECLASS_SUBDIR="Reclassify"
 MEICA_CLASSIFIER_MODE="nsi"      # nsi|legacy_template_rho|none
 MEICA_RECLASSIFY_IMPLEMENTATION="standard"
 MEICA_RECLASSIFY_SPATIAL_SUBDIR="Reclassify"
-MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES="" # supply your training table only for the optional spatial implementation
+MEICA_RECLASSIFY_SPATIAL_TRAINING_FEATURES="$MEDIR/res0urces/meica_reclassify_spatial_training_features.csv.gz"
 MEICA_RECLASS_NO_REPORTS=0       # 0 writes reports, 1 suppresses report generation
 MEICA_QC_CIFTI_ENABLE=1
 MEICA_QC_CIFTI_TAGS="betas_OC,t2sv,s0v"
@@ -190,7 +186,7 @@ MEICA_ORIG_ALIAS_ENABLE=1        # 1 creates legacy/orig filename aliases
 # 3e) ICA-AROMA
 # -----------------------------------------------------------------------------
 AROMA_ENV="aroma"                # conda environment used for ICA-AROMA
-AROMA_BIN_OVERRIDE=""           # set the installed ICA_AROMA.py path if using AROMA
+AROMA_BIN_OVERRIDE="" # Discover in AROMA_ENV, or set your ICA_AROMA.py path.
 AROMA_PYTHON="python"
 AROMA_ACTIVATE_MODE="conda_activate" # conda_activate|conda_run|direct
 AROMA_PARALLEL_JOBS=4
@@ -220,7 +216,7 @@ CRAWLING_SEED_FC_INPUT_CIFTI=""          # empty => final concatenated CIFTI
 CRAWLING_SEED_FC_INPUT_TAG=""            # empty => CONCAT_INPUT_TAG
 CRAWLING_SEED_FC_OUTDIR=""               # empty => func/<FUNC_DIRNAME>/QC/CrawlingSeedFC
 CRAWLING_SEED_FC_WB_SURFER2=""           # direct path to wb_surfer2; overrides conda env
-CRAWLING_SEED_FC_WB_SURFER2_CONDA_ENV="" # empty => resolve wb_surfer2 on PATH
+CRAWLING_SEED_FC_WB_SURFER2_CONDA_ENV="wbsurfer_env"
 CRAWLING_SEED_FC_SCENE_TEMPLATE="$MEDIR/res0urces/CrawlingSeedFC/FlatMaps+Inflated.scene"
 CRAWLING_SEED_FC_VERTICES="$MEDIR/res0urces/CrawlingSeedFC/VerticesToSample.txt"
 CRAWLING_SEED_FC_TEMPLATE_SUBJECT="sub-TEMPLATE"
@@ -254,18 +250,20 @@ NSI_RELIABILITY_MODEL=0
 # -----------------------------------------------------------------------------
 # 3h) PFM
 # -----------------------------------------------------------------------------
-PFM_ENABLE=0                     # optional downstream mapping; set 0 to skip time-consuming PFM outputs
+PFM_INPUT_TASKS=("rest") # Or ("rest" "Motor" "WorkingMemory") for configured tasks.
+PFM_ENABLE=0                     # set 1 after configuring optional PFM inputs
 PFM_STRATEGY="ridgepfm"      # ridgepfm | infomap | all
 PFM_PYTHON="$PIPELINE_PYTHON"
-PFM_INPUT_CIFTI=""               # empty => derive from concat outputs below
-PFM_INPUT_TAG=""                 # empty => derive from CONCAT_INPUT_TAG
+PFM_INPUT_CIFTI=""               # Optional explicit CIFTI override; otherwise use PFM_INPUT_TASKS
+PFM_INPUT_TAG=""                 # empty => use each selected task's concatenation metadata
 PFM_CONCAT_OUT_SUBDIR="$CONCAT_OUT_SUBDIR"
 PFM_FD_THRESHOLD="$CONCAT_FD_THRESHOLD"
 PFM_DISTANCE_MATRIX=""           # empty => <SubjectDir>/anat/T1w/fsaverage_LR32k/DistanceMatrix.npy
 PFM_DISTANCE_BUILD_IF_MISSING=1
 PFM_DISTANCE_CORTEX_MODE="hybrid"      # geodesic | hybrid | euclidean
 PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM=5 # hybrid only: use 3D Euclidean distance for same-hemi cortical pairs this close
-PFM_OUTDIR=""                    # empty => <SubjectDir>/func/<FUNC_DIRNAME>/PFM
+PFM_OUTDIR=""                    # empty => <SubjectDir>/pfm
+PFM_CONCAT_DIR=""               # Optional FD/ScanIdx/ScanInfo directory for explicit CIFTI overrides
 PFM_PREP_DIR=""                  # empty => <PFM_OUTDIR>/prep
 
 # Optional post-PFM manual update pass. This scans per-density review tables and
@@ -276,7 +274,7 @@ PFM_INFOMAP_UPDATE_OUTFILE="InfomapNetworkLabels_ManualAdjusted"
 
 # Optional homogeneity/spin-null diagnostics. A rotation-index CIFTI should use
 # 1-based source indices in cortex rows, with 0 for unmapped vertices.
-PFM_HOMOGENEITY_TEST_ENABLE=0   # enable after supplying the optional rotation-index resource
+PFM_HOMOGENEITY_TEST_ENABLE=1
 PFM_HOMOGENEITY_ROTATIONS_CIFTI="$MEDIR/res0urces/Rotated_inds.dtseries.nii"
 PFM_HOMOGENEITY_N_ROTATIONS=100
 PFM_HOMOGENEITY_MIN_COMMUNITY_SIZE=5
@@ -291,28 +289,27 @@ PFM_HOMOGENEITY_ALPHA=0.05
 # whose inputs are ACPC images.
 TANS_ENABLE=0
 TANS_CONFIG_FILE=""              # required when TANS_ENABLE=1; YAML template
-TANS_CODE_ROOT=""                # required: /path/to/pfm-tans/pipeline; separate checkout
+TANS_CODE_ROOT="/path/to/pfm-tans/pipeline"
 TANS_PYTHON="python3"
 TANS_OUTPUT_DIRNAME="tans"        # folder under <SubjectDir>; empty => tans; no paths
-TANS_PFM_DIR=""                  # empty => func/<FUNC_DIRNAME>/PFM/RidgePFM
+TANS_PFM_DIR=""                  # empty => <SubjectDir>/pfm/RidgePFM; old layouts remain readable
 TANS_WORKERS=6
-TANS_ROBUSTNESS_ENABLE=1          # 0: nominal fine winner; placement-error robustness not evaluated
 TANS_TARGET_NETWORK=""          # Prior name or 1-based Prior network number
 TANS_COARSE_GRID_DENSITY=0.85   # requested projected-target coverage, 0-1
 # Default recipe is generated during TANS from a bundled Glasser LPFC envelope
 # plus this subject's L_G_front_middle label. A binary CIFTI path overrides it.
 TANS_TARGET_SEARCH_SPACE="glasser_predefined_plus_subject_specific_mfg"
 TANS_INCLUDE_SM_HAND_CALIBRATION=1 # 1: run left-precentral SM-Hand first for dose transfer
-TANS_SM_HAND_COIL_MODEL=""        # empty: use simulation.sm_hand_calibration_coil in TANS YAML
-TANS_TREATMENT_COIL_MODEL=""      # empty: use simulation.treatment_coil in TANS YAML
+TANS_SM_HAND_COIL_MODEL="/path/to/SimNIBS/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_C-B60.ccd"
+TANS_TREATMENT_COIL_MODEL="/path/to/SimNIBS/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd"
 TANS_CALIBRATION_REGISTRY="" # empty => pfm-tans bundled registry
-TANS_SM_HAND_DIDT_CALIBRATION=""   # empty: use the matched calibration selected in TANS YAML
-TANS_TREATMENT_DIDT_CALIBRATION="" # empty: use TANS YAML; select exact coil/stimulator/pulse identity
+TANS_SM_HAND_DIDT_CALIBRATION="magventure_x100_c-b60_biphasic_normal"
+TANS_TREATMENT_DIDT_CALIBRATION="" # Select the calibration matching your coil and hardware.
 TANS_ALLOW_SIMILAR_COIL_CALIBRATION=0 # requires explicit table/ID and justification
 TANS_CALIBRATION_SUBSTITUTION_JUSTIFICATION=""
 TANS_MAXIMUM_TREATMENT_RMT_RATIO=1.20 # upward-only ceiling; empty disables it
-TANS_HANDLE_ORIENTATION_PREFERENCE="as_simulated" # as_simulated|posterior_inferior
-TANS_COIL_180_DEGREE_MAGNITUDE_EQUIVALENT=0 # required for automatic 180-degree handle flip
+TANS_HANDLE_ORIENTATION_PREFERENCE="posterior_inferior" # as_simulated|posterior_inferior
+TANS_COIL_180_DEGREE_MAGNITUDE_EQUIVALENT=1 # required for automatic 180-degree handle flip
 TANS_START_FROM="headmodel"      # headmodel|targets|plan|search|reports
 TANS_STOP_AFTER="reports"        # headmodel|targets|plan|search|reports
 TANS_RESUME=1
@@ -461,13 +458,24 @@ PFM_RESOURCES_ROOT="$MEDIR/res0urces"
 # -----------------------------------------------------------------------------
 # 4j) PFM RidgePFM
 # -----------------------------------------------------------------------------
+# Parameter guide (FC=1; Lynch2024, signed MGTR/GSR FC, logit priors):
+#   ~30 retained min: lambda=1, spatial=0.025-0.05.
+#   Multiple hours / emphasis on individual topography: lambda=10-30, spatial~0.025.
+#   FC-only sensitivity check: lambda=1-30, spatial=0; expect lower label reliability.
+# Spatial=0.05 favors repeatable canonical labels; 0.025 allows more individual
+# departures. Stronger priors generally improve agreement while suppressing variation.
+# Lambda regularizes competition among FC templates. Because FC coefficients are
+# standardized, larger lambda can retain more individual information; it does not
+# simply suppress FC. No single setting is optimal for every metric.
+# General guidelines from exploratory N=20 cortical results, strongest at 25-30
+# retained min and in high-data halves; 10-20 min is a provisional extrapolation.
 PFM_RF_OUTFILE="RidgePFM_VTX"
-PFM_RF_FC_WEIGHT=1.0              # weight on subject functional connectivity evidence
+PFM_RF_FC_WEIGHT=1.0              # keep 1 for the parameter ranges reviewed above
 PFM_RF_FC_DEMEAN=0             # set 1 when ridgepfm input has not had GSR/MGTR; demeans each FC fingerprint
 PFM_RF_POSITIVE_FC_ONLY=0         # experimental; set 1 to fit only positive target FC edges (legacy V5 option)
-PFM_RF_SPATIAL_WEIGHT=0.05         # weight on spatial/network priors
-PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit" # logit matches legacy V4/V5 RidgePFM; log is retained for comparisons
-PFM_RF_LAMBDA=1                   # validated default; 10 over-stabilizes labels and worsens held-visit FC prediction
+PFM_RF_SPATIAL_WEIGHT=0.025         # 0.025 allows more individual departures; 0.05 favors label repeatability
+PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit" # reviewed ranges use logit; another transform changes the weight scale
+PFM_RF_LAMBDA=10                  # ~30 retained min: 1; multiple hours / individual topography: consider 10-30
 PFM_RF_LOCAL_EXCLUSION_MM=10      # validated target-specific local exclusion radius
 PFM_RF_FIT_R2_MODE="exact"        # exact writes full-profile fit; skip accelerates label-only mapping and writes NaN fit
 PFM_RF_REPEAT_SUPPORT_ENABLE=0    # independently map eligible runs and summarize temporal assignment support
