@@ -211,10 +211,10 @@ NSI_USABILITY_MODEL=1
 NSI_RELIABILITY_MODEL=0
 ```
 
-NSI uses the concatenated, FD-censored CIFTI by default and writes to:
+NSI uses the selected PFM dataset's concatenated, FD-censored CIFTI and writes to:
 
 ```text
-func/<FUNC_DIRNAME>/QC/NSI/
+pfm/QC/NSI/
 ```
 
 Common outputs:
@@ -292,18 +292,18 @@ Enable with:
 CRAWLING_SEED_FC_ENABLE=1
 ```
 
-This concat-stage QC sub-step runs after concat and before NSI when enabled. To
-rerun concat and the optional movie, use:
+This selected-dataset stage runs after `pfm_prepare` and before NSI when enabled.
+To prepare/reuse the selected dataset and generate its movie, use:
 
 ```bash
-START_FROM_MODULE="concat"
-STOP_AFTER_MODULE="concat"
+START_FROM_MODULE="pfm_prepare"
+STOP_AFTER_MODULE="crawling_seed_fc"
 ```
 
 Primary output:
 
 ```text
-func/<FUNC_DIRNAME>/QC/CrawlingSeedFC/sub-<Subject>.mp4
+pfm/QC/CrawlingSeedFC/sub-<Subject>.mp4
 ```
 
 The module builds a dense correlation CIFTI and renders a Workbench/wb_surfer2
@@ -324,3 +324,57 @@ Figure/movie slots:
 docs/assets/qc-crawling-seed-fc-still.png
 docs/assets/qc-crawling-seed-fc-demo.mp4
 ```
+
+## Selected PFM dataset QC
+
+The downstream order is `concat` (per task) → `pfm_prepare` (selected dataset)
+→ `crawling_seed_fc` → `nsi` → `pfm` → `tans`.
+This relocation concerns downstream dataset NSI. Component-level NSI used during
+ME-ICA reclassification remains run-specific.
+
+NSI and seed-FC movies are optional stages independent of `PFM_ENABLE`; the
+selection in `PFM_INPUT_TASKS` still determines their dataset when mapping is off.
+
+For combined rest and task mapping, set the selected tasks explicitly. Both QC
+modules receive the exact censored CIFTI in `PFMPrepSummary.json` (or the explicit
+`PFM_INPUT_CIFTI` override); no per-task fallback is used. NSI's model duration is
+computed from retained input frames × CIFTI TR in seconds, not the acquired frame
+count in a single task's metadata. External CIFTIs therefore do not require an
+unrelated `ScanInfo.json` to determine duration. Task/run provenance remains in
+`dataset.json` and the concatenation metadata; external overrides retain their
+explicit unverified-task-membership designation.
+
+```bash
+PFM_INPUT_TASKS=("rest" "Motor" "WorkingMemory")
+START_FROM_MODULE="pfm_prepare"
+STOP_AFTER_MODULE="nsi"
+```
+
+This prepares/reuses selected inputs and runs the enabled dataset QC without
+rerunning functional preprocessing or mapping. Starting at `crawling_seed_fc` or
+`nsi` verifies/reuses preparation. Starting at `pfm` skips the earlier QC stages;
+starting at `tans` retains its mapping-only resume behavior.
+Changed input selection is rejected on resume; restart from `concat` to rebuild,
+or choose a separate `PFM_OUTDIR` to retain both analyses. `STOP_AFTER_MODULE="concat"`
+produces per-task concatenations only; it no longer runs movies as a sub-step.
+
+Receipts `pfm/QC/nsi_dataset.json` and `pfm/QC/crawling_seed_fc_dataset.json` bind
+the input CIFTI, dataset fingerprint, QC settings, code/resources and output
+signatures. Matching complete outputs are reused; missing or changed outputs
+are regenerated. Set `PFM_QC_FORCE=1` to force QC regeneration. The pipeline
+routes these QC outputs to `<PFM_OUTDIR>/QC/` and does not move historical
+`func/<task>/QC/NSI` or `func/<task>/QC/CrawlingSeedFC` directories. Low-level
+standalone shell calls retain their legacy defaults and support explicit input
+and output arguments via environment variables.
+
+## Network-colored grayplots
+
+After network mapping, grayplots are updated in place at:
+
+```text
+func/<task>/QC/MotionGrayPlots/motion_grayplots_qc.html
+```
+
+The same reports show motion, physiology, and network-colored grayplots. Cortex and subcortex are grouped by network separately, with a thin divider. Both blocks use assignments from the same fitted dlabel; cortical-only exports leave subcortex unassigned. Early QC can run before mapping; fitted network labels replace the initial row order when available. Subsequent QC reuses those labels. No second report set or hash-named output folder is created.
+
+`<PFM_OUTDIR>/QC/MotionGrayPlots.html` links to these reports. `PFM_NETWORK_GRAYPLOTS_ENABLE=1` enables the update; `PFM_NETWORK_GRAYPLOTS_LABEL` optionally selects a fitted dlabel. Successfully replaced legacy hash folders are removed; unsuccessful updates preserve the existing report.

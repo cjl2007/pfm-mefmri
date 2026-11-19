@@ -87,7 +87,7 @@ PFM.
 ## NSI
 
 ```text
-func/<FUNC_DIRNAME>/QC/NSI/
+pfm/QC/NSI/
   <prefix>_run_config.txt
   <prefix>_nsi.npz
   <prefix>_hist_nsi.png
@@ -104,7 +104,7 @@ concatenated duration.
 ## Crawling Seed FC
 
 ```text
-func/<FUNC_DIRNAME>/QC/CrawlingSeedFC/
+pfm/QC/CrawlingSeedFC/
   sub-<Subject>.mp4
 ```
 
@@ -152,3 +152,15 @@ func/<FUNC_DIRNAME>/PFM/Infomap/InfomapNetworkLabels+ArealParcellation.dlabel.ni
 ```
 
 The exact prefix depends on strategy and manual-label settings.
+
+## Network-colored grayplots
+
+After network mapping, grayplots are updated in place at:
+
+```text
+func/<task>/QC/MotionGrayPlots/motion_grayplots_qc.html
+```
+
+The same reports show motion, physiology, and network-colored grayplots. Cortex and subcortex are grouped by network separately, with a thin divider. Both blocks use assignments from the same fitted dlabel; cortical-only exports leave subcortex unassigned. Early QC can run before mapping; fitted network labels replace the initial row order when available. Subsequent QC reuses those labels. No second report set or hash-named output folder is created.
+
+`<PFM_OUTDIR>/QC/MotionGrayPlots.html` links to these reports. `PFM_NETWORK_GRAYPLOTS_ENABLE=1` enables the update; `PFM_NETWORK_GRAYPLOTS_LABEL` optionally selects a fitted dlabel. Successfully replaced legacy hash folders are removed; unsuccessful updates preserve the existing report.

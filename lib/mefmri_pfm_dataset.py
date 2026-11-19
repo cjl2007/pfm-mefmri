@@ -165,7 +165,19 @@ def finish(args):
         for pattern in ('*.dlabel.nii', '*.dtseries.nii', '*.dscalar.nii'):
             for file in (root / directory).glob(pattern):
                 outputs.append({**signature(file), 'sha256': hashlib.sha256(file.read_bytes()).hexdigest()})
-    value.update(status='complete', completed_utc=datetime.now(timezone.utc).isoformat(), outputs=outputs, analyses=analyses)
+    qc = {}
+    for stage in ('nsi', 'crawling_seed_fc'):
+        receipt = root / 'QC' / (stage + '_dataset.json')
+        if receipt.is_file():
+            report = json.loads(receipt.read_text())
+            bound = report.get('binding', {})
+            current = bound.get('dataset_fingerprint') == value.get('input_fingerprint')
+            source = bound.get('input', {})
+            if source.get('path'):
+                current = current and Path(source['path']).is_file() and signature(source['path']) == source
+            qc[stage] = {'receipt': str(receipt), 'status': report.get('status') if current else 'stale',
+                         'fingerprint': report.get('fingerprint'), 'matches_current_dataset': bool(current)}
+    value.update(status='complete', completed_utc=datetime.now(timezone.utc).isoformat(), outputs=outputs, analyses=analyses, qc=qc)
     atomic_json(path, value)
 
 

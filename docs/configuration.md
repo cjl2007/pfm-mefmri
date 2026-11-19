@@ -23,8 +23,9 @@ scientific outputs.
 ## Public templates and project-owned settings
 
 Only generic templates belong in this repository. Keep named project, participant,
-and machine-specific configurations outside it. Repository examples use relative
-resource paths, commands found on PATH, and `/path/to/...` placeholders.
+and machine-specific configurations outside it. Repository templates use installation-relative resources and commands found on PATH.
+User-supplied installation and hardware paths are blank, with comments describing
+what belongs there; `/path/to/...` strings in this guide are examples to replace.
 
 | Template | Edit for your project |
 | --- | --- |
@@ -211,3 +212,25 @@ replace all software/coil paths and calibration IDs, choose a target, and only
 then set `TANS_ENABLE=1`. The shell fragment is appended to the complete processing
 config; it is not a replacement for that config. Blank hardware overrides use
 the YAML settings. Review the example orientation and coil-equivalence settings against the hardware you select.
+
+### Selected-dataset QC routing
+
+Stage order after surface mapping: `concat` → `pfm_prepare` → `crawling_seed_fc`
+→ `nsi` → `pfm` → `tans`. `PFM_INPUT_TASKS` and `PFM_OUTDIR` select
+the dataset/root for NSI and movies even when mapping is disabled. Enable them
+with `NSI_ENABLE` and `CRAWLING_SEED_FC_ENABLE`; `PFM_QC_FORCE=1` bypasses matching
+QC receipts. Pipeline dataset mode fixes both QC inputs to the selected PFM CIFTI
+and their outputs to `<PFM_OUTDIR>/QC/`; low-level `NSI_INPUT_TAG` and movie input
+path controls are standalone overrides. `START_FROM_MODULE=pfm_prepare` can create
+these outputs for completed subjects without repeating denoising. See
+[QC stage and resume details](qc-modules.md#selected-pfm-dataset-qc).
+
+## RidgePFM cross-validation
+
+`PFM_RF_CV_ENABLE=0` uses the specified `PFM_RF_LAMBDA` and `PFM_RF_SPATIAL_WEIGHT`. Set `PFM_RF_CV_ENABLE=1` to select them within each subject using held-out FC profile homogeneity above a spatial null and network map reliability.
+
+The wrapper template exposes the lambda and spatial-weight vectors, permitted homogeneity loss, minimum partition duration, maximum independent A/B comparisons, rotation count, guard duration, TR override, threads, and rendering controls. Rotations are counted per A/B comparison. Undefined rotations are omitted, and the remaining paired scores are averaged. The selected pair is refit on all data and passed to downstream mapping stages.
+
+The release includes 100 spatial rotations. Set `PFM_RF_CV_ROTATIONS_CIFTI` to a larger compatible file when requesting more.
+
+[CV settings and example subject](ridgepfm-cv-selection.md).

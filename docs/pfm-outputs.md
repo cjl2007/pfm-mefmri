@@ -1,8 +1,20 @@
-# PFM Outputs
+# Precision Functional Mapping
 
 [See example maps and continuous representations](https://raw.githubusercontent.com/cjl2007/pfm-mefmri/main/docs/ridgepfm-taxonomy-explorer.zip).
 Network labels and weights can feed the [optional TANS module](tans-integration.md)
 after QC and explicit selection of the input maps and metadata.
+
+## Choose a mapping approach
+
+Precision functional mapping (PFM) encompasses methods for mapping brain networks in individuals, beyond group-average descriptions. We are developing RidgePFM to bring knowledge of network locations from foundational PFM studies into FC template matching, balancing the reliability supported by spatial priors with the retention of individual-specific network features. A conventional Infomap workflow is also available. Both use the selected subject-level dataset described below.
+
+For RidgePFM, use [parameter guidance](ridgepfm-parameters.md), review [spatial-prior tradeoffs](ridgepfm-spatial-priors.md), or enable [subject-specific cross-validation](ridgepfm-cv-selection.md).
+
+## Maps across visits
+
+Pool QC-approved runs to estimate a stable individual reference, or map explicitly defined visits or epochs separately to study change. For separate analyses, supply each epoch’s prepared, censored CIFTI through `PFM_INPUT_CIFTI` and use a distinct `PFM_OUTDIR`.
+
+Keep input membership, retained duration, processing settings, and QC with each map. Compare alignment, motion, coverage, and network-map reliability before interpreting differences across visits. `START_SESSION` controls processing and resume; it does not define a visit contrast.
 
 ## Choose rest-only or rest plus selected tasks
 
@@ -101,6 +113,10 @@ score. `_FusedScoreSoftmax.dtseries.nii` contains a continuous weight for every
 network at each location. These softmax weights summarize competition among the
 fitted network scores; they are not calibrated probabilities of biological identity.
 `_TopFusedScoreWeight.dtseries.nii` records the weight of the winning label.
+Across networks, the weights sum to one at each mapped location. They provide a
+weighted representation of the fused FC/prior evidence, not fractions of BOLD
+signal or established simultaneous biological memberships.
+
 
 Volume export writes WTA labels and fused-score softmax weights under `Volume/`. Workbench maps cortex using the subject's midthickness,
 white, and pial surfaces with `-ribbon-constrained`. Labels use categorical mapping;
@@ -317,27 +333,10 @@ docs/assets/pfm-infomap-confidence.png
 docs/assets/pfm-infomap-review-table.png
 ```
 
-## Manual Infomap Updates
+## Manual Infomap Edits
 
-Manual edits can be applied without rerunning Infomap:
-
-```bash
-PFM_INFOMAP_UPDATE_ENABLE=1
-START_FROM_MODULE="pfm_update"
-```
-
-The update module scans:
-
-```bash
-PFM_INFOMAP_UPDATE_TABLE_GLOB="GraphDensity_*/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.csv"
-```
-
-and writes adjusted density and consensus labels, for example:
-
-```text
-PFM/Infomap/InfomapNetworkLabels_ManualAdjusted_ModeConsensus.dlabel.nii
-PFM/Infomap/InfomapNetworkLabels_ManualAdjusted_ProbabilityConsensus.dscalar.nii
-```
+Manual correction tables remain available for review. Applying those edits is
+outside the main pipeline; a standalone update script can be added separately.
 
 ## Areal Parcellation
 
@@ -504,3 +503,42 @@ For each subject:
   unusual network deviations.
 - Compare RidgePFM and Infomap when both were run.
 - Record any manual Infomap corrections in the per-density correction tables.
+
+## Selected-dataset quality control
+
+NSI and crawling-seed FC use the same selected, concatenated and FD-censored
+CIFTI recorded in `<PFM_OUTDIR>/dataset.json`, before mapping-only subcortical
+regression or smoothing. They describe that dataset, including every selected
+task, rather than the first task used as a functional reference.
+
+```text
+<PFM_OUTDIR>/                         # default: <SubjectDir>/pfm
+  dataset.json
+  ConcatenatedCiftis/
+  QC/
+    nsi_dataset.json
+    crawling_seed_fc_dataset.json
+    NSI/
+    CrawlingSeedFC/
+    ModuleLogs/
+    RunMetadata/
+  RidgePFM/                          # or Infomap/
+```
+
+Each QC receipt binds input selection, input CIFTI, settings, implementation
+and output files. Changing data or QC settings invalidates reuse. Use separate
+`PFM_OUTDIR` roots, such as `pfm/rest_only` and `pfm/rest_plus_tasks`, to retain
+multiple dataset selections. Existing older per-task QC is not moved or deleted.
+See [QC stages and resuming](qc-modules.md#selected-pfm-dataset-qc).
+
+## Network-colored grayplots
+
+After network mapping, grayplots are updated in place at:
+
+```text
+func/<task>/QC/MotionGrayPlots/motion_grayplots_qc.html
+```
+
+The same reports show motion, physiology, and network-colored grayplots. Cortex and subcortex are grouped by network separately, with a thin divider. Both blocks use assignments from the same fitted dlabel; cortical-only exports leave subcortex unassigned. Early QC can run before mapping; fitted network labels replace the initial row order when available. Subsequent QC reuses those labels. No second report set or hash-named output folder is created.
+
+`<PFM_OUTDIR>/QC/MotionGrayPlots.html` links to these reports. `PFM_NETWORK_GRAYPLOTS_ENABLE=1` enables the update; `PFM_NETWORK_GRAYPLOTS_LABEL` optionally selects a fitted dlabel. Successfully replaced legacy hash folders are removed; unsuccessful updates preserve the existing report.

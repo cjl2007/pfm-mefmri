@@ -42,7 +42,7 @@ class TansPipelineHookTests(unittest.TestCase):
 
     def run_pipeline(self, **overrides):
         settings = dict(
-            MEDIR=ROOT, EnvironmentScript=self.env_file,
+            MEDIR=ROOT, EnvironmentScript=self.env_file, PIPELINE_TASK_LOOP_CHILD=1,
             START_FROM_MODULE='pfm', STOP_AFTER_MODULE='tans',
             FUNC_DIRNAME='rest', FUNC_FILE_PREFIX='Rest',
             TANS_ENABLE='1', TANS_CODE_ROOT=self.code, TANS_CONFIG_FILE=self.yaml,
@@ -65,15 +65,22 @@ class TansPipelineHookTests(unittest.TestCase):
         return subprocess.run(['bash',str(ROOT/'bin/mefmri_pipeline.sh'),str(self.subject),str(config)],
                               capture_output=True, text=True, env=environment)
 
-    def test_tans_runs_after_pfm_and_manual_update(self):
+    def test_tans_runs_directly_after_pfm(self):
         result = self.run_pipeline()
         self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
-        self.assertEqual(self.events.read_text().splitlines(), ['pfm','pfm_update','tans'])
+        self.assertEqual(self.events.read_text().splitlines(), ['pfm','tans'])
         arguments = json.loads(self.capture.read_text())
         self.assertEqual(arguments[arguments.index('--subject-dir')+1], str(self.subject))
         self.assertEqual(arguments[arguments.index('--output')+1], str(self.subject/'tans'))
         self.assertIn('--resume', arguments)
         self.assertIn('--skip-sm-hand-calibration', arguments)
+
+    def test_removed_update_stage_is_rejected(self):
+        for stage in ('pfm_update', 'infomap_update'):
+            result = self.run_pipeline(START_FROM_MODULE=stage)
+            self.assertEqual(result.returncode, 2, result.stdout+'\n'+result.stderr)
+            self.assertIn('invalid module tag', result.stderr)
+            self.assertFalse(self.events.exists())
 
     def test_tans_only_resume_skips_upstream_modules(self):
         result = self.run_pipeline(START_FROM_MODULE='tans')
@@ -90,7 +97,7 @@ class TansPipelineHookTests(unittest.TestCase):
     def test_disabled_tans_does_not_invoke_driver(self):
         result = self.run_pipeline(TANS_ENABLE='0', STOP_AFTER_MODULE='')
         self.assertEqual(result.returncode, 0, result.stdout+'\n'+result.stderr)
-        self.assertEqual(self.events.read_text().splitlines(), ['pfm','pfm_update'])
+        self.assertEqual(self.events.read_text().splitlines(), ['pfm'])
         self.assertFalse(self.capture.exists())
 
     def test_explicit_tans_route_requires_enable(self):

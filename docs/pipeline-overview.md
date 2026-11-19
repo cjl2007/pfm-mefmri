@@ -29,17 +29,22 @@ denoise
 mgtr
 vol2surf
 concat
+pfm_prepare
+crawling_seed_fc
 nsi
 pfm
-pfm_update
 tans
 ```
 
 Use `START_FROM_MODULE` and `STOP_AFTER_MODULE` to resume or inspect a subset.
 The legacy `meica` tag is accepted as an alias for `denoise`.
 
-When `CRAWLING_SEED_FC_ENABLE=1`, the CrawlingSeedFC movie runs as an optional
-concat-stage QC sub-step after concat and before NSI.
+Per-task processing stops at `concat`. The subject-level `pfm_prepare` stage
+then selects and prepares `PFM_INPUT_TASKS`; `crawling_seed_fc` and `nsi` operate
+once on that exact selected/censored dataset, before mapping. QC remains usable
+with `PFM_ENABLE=0`. Scalar and vector task configurations follow the same
+selected-dataset routing. `STOP_AFTER_MODULE="concat"` now stops before these
+QC stages; use `crawling_seed_fc` or `nsi` to include them.
 
 ## Anatomy
 
@@ -110,6 +115,12 @@ Supported modes:
 - `none`: writes zero-unwarp placeholders and skips susceptibility correction.
   Use explicitly only when needed because registration quality can suffer.
 
+## Within-subject alignment
+
+Functional coregistration aligns each acquisition to the participant’s anatomy. Optional within-subject refinement improves alignment across runs and visits before motion correction and denoising; transforms are combined for one spatial resampling.
+
+Set `COREG_ALIGNMENT_STRATEGY="subject_refined"` to enable refinement. The shipped configuration uses `independent`. See [configuration](longitudinal-alignment.md) and [alignment QC](output-gallery.md#within-subject-alignment).
+
 ## Denoising Branches
 
 The pipeline can process multi-echo and single-echo inputs.
@@ -172,8 +183,8 @@ PFM_ENABLE=1
 PFM_STRATEGY="ridgepfm"      # ridgepfm|infomap|all
 ```
 
-The `pfm_update` stage applies manual Infomap edits without rerunning heavy
-community detection.
+Manual Infomap corrections are outside the main pipeline. The main workflow
+continues directly from PFM to optional TANS.
 
 ## Optional TANS Stage
 
@@ -220,3 +231,9 @@ func/<FUNC_DIRNAME>/QC/RunMetadata/pipeline_run_<timestamp>.txt
 ```
 
 This captures effective settings without renaming the canonical outputs.
+
+## Task modeling — experimental
+
+This module is experimental and a work in progress. After PFM and optional TANS, `task_model` can fit supported per-run tasks.
+See [task-modeling.md](task-modeling.md) for reusable recipes, run-specific timing,
+outputs, and inference limitations. Existing processing modules are unchanged.

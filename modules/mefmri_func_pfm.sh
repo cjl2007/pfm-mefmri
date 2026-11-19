@@ -63,6 +63,21 @@ PFM_RF_POSITIVE_FC_ONLY="${PFM_RF_POSITIVE_FC_ONLY:-0}"
 PFM_RF_SPATIAL_WEIGHT="${PFM_RF_SPATIAL_WEIGHT:-0.05}"
 PFM_RF_SPATIAL_PRIOR_TRANSFORM="${PFM_RF_SPATIAL_PRIOR_TRANSFORM:-logit}"
 PFM_RF_LAMBDA="${PFM_RF_LAMBDA:-1}"
+PFM_RF_CV_ENABLE="${PFM_RF_CV_ENABLE:-0}"
+PFM_RF_CV_LAMBDAS="${PFM_RF_CV_LAMBDAS:-0.01,0.03,0.1,0.3,1,3,10,30}"
+PFM_RF_CV_SPATIAL_WEIGHTS="${PFM_RF_CV_SPATIAL_WEIGHTS:-0.01,0.025,0.05,0.1,0.25,0.5}"
+PFM_RF_CV_MAX_FC_LOSS="${PFM_RF_CV_MAX_FC_LOSS:-0.10}"
+PFM_RF_CV_MIN_PARTITION_MINUTES="${PFM_RF_CV_MIN_PARTITION_MINUTES:-10}"
+PFM_RF_CV_MAX_COMPARISONS="${PFM_RF_CV_MAX_COMPARISONS:-10}"
+PFM_RF_CV_N_ROTATIONS="${PFM_RF_CV_N_ROTATIONS:-100}"
+PFM_RF_CV_GUARD_SECONDS="${PFM_RF_CV_GUARD_SECONDS:-32}"
+PFM_RF_CV_TR_SECONDS="${PFM_RF_CV_TR_SECONDS:-}"
+PFM_RF_CV_THREADS="${PFM_RF_CV_THREADS:-4}"
+PFM_RF_CV_RENDER="${PFM_RF_CV_RENDER:-1}"
+PFM_RF_CV_KEEP_CACHE="${PFM_RF_CV_KEEP_CACHE:-0}"
+PFM_RF_CV_OUTDIR_NAME="${PFM_RF_CV_OUTDIR_NAME:-CrossValidation}"
+PFM_RF_CV_ROTATIONS_CIFTI="${PFM_RF_CV_ROTATIONS_CIFTI:-}"
+case "$PFM_RF_CV_ENABLE" in 0|1) ;; *) echo "ERROR: PFM_RF_CV_ENABLE must be0 or1"; exit 2 ;; esac
 PFM_RF_LOCAL_EXCLUSION_MM="${PFM_RF_LOCAL_EXCLUSION_MM:-10}"
 PFM_RF_FIT_R2_MODE="${PFM_RF_FIT_R2_MODE:-exact}"
 PFM_RF_REPEAT_SUPPORT_ENABLE="${PFM_RF_REPEAT_SUPPORT_ENABLE:-0}"
@@ -277,6 +292,21 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
   [[ -f "$PFM_DISTANCE_MATRIX" ]] || { echo "ERROR: distance matrix not found: $PFM_DISTANCE_MATRIX"; exit 2; }
 fi
 
+cv_prepared_input=""
+if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_CV_ENABLE" == "1" ]]; then
+  cv_original_input="$PFM_INPUT_CIFTI"
+  cv_prep_scan_idx="${PFM_CONCAT_DIR}/ScanIdx.mat"
+  [[ "$PFM_INPUT_CIFTI" != *+FDlt* ]] || cv_prep_scan_idx="${PFM_CONCAT_DIR}/ScanIdx_Censored.mat"
+  cv_prep_args=( --cache "$PREP_DIR/RidgePFM_CV_InputCache.json" --source "$cv_original_input"
+    --left-surf "$L_MID" --right-surf "$R_MID" --scan-idx "$cv_prep_scan_idx"
+    --regress-enable "$PFM_RF_SUBCORT_REGRESS_ENABLE" --distance-mm "$PFM_RF_SUBCORT_REGRESS_DISTANCE_MM"
+    --sigma-mm "$PFM_RF_SMOOTHING_KERNEL" --regression-code "$MEDIR/lib/pfm_subcort_regress.py" --pipeline-code "$0" )
+  cv_prepared_input="$("$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_cv_prep_cache.py" --mode check "${cv_prep_args[@]}")"
+fi
+if [[ -n "$cv_prepared_input" ]]; then
+  PFM_INPUT_CIFTI="$cv_prepared_input"
+  echo "[pfm] reuse verified unchanged CV preprocessing"
+else
 if [[ "${PFM_RF_SUBCORT_REGRESS_ENABLE}" == "1" ]]; then
   IN_BASENAME="$(basename "$PFM_INPUT_CIFTI" .dtseries.nii)"
   PFM_INPUT_CIFTI_REG="${PREP_DIR}/${IN_BASENAME}+SubcortRegression.dtseries.nii"
@@ -303,6 +333,11 @@ if awk "BEGIN{exit !(${PFM_RF_SMOOTHING_KERNEL} > 0)}"; then
   PFM_INPUT_CIFTI="$PFM_INPUT_CIFTI_SMOOTH"
 fi
 
+  if [[ "$PFM_STRATEGY" == "ridgepfm" && "$PFM_RF_CV_ENABLE" == "1" ]]; then
+    "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_cv_prep_cache.py" --mode record "${cv_prep_args[@]}" --prepared-output "$PFM_INPUT_CIFTI"
+  fi
+fi
+
 echo "[pfm] prepared input CIFTI=${PFM_INPUT_CIFTI}"
 
 PFM_NETWORK_DLABEL=""
@@ -325,6 +360,43 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
     applywarp -i "$PFM_SUBCORT_PRIORS_NII" -o "$PFM_SUBCORT_PRIORS_ACPC" -r "$ACPC_REF_FUNC" -w "$XFM_STANDARD2ACPC"
   fi
 
+  # Choose parameters before the ordinary mapper and every downstream RidgePFM stage.
+  if [[ "$PFM_RF_CV_ENABLE" == "1" ]]; then
+    case "$PFM_RF_CV_OUTDIR_NAME" in ""|.|..|*/*) echo "ERROR: CV output name must be one directory name"; exit 2 ;; esac
+    cv_optional=( )
+    [[ -z "$PFM_RF_CV_TR_SECONDS" ]] || cv_optional+=( --tr-seconds "$PFM_RF_CV_TR_SECONDS" )
+    cv_rotations="${PFM_RF_CV_ROTATIONS_CIFTI:-${PFM_RESOURCES_ROOT}/RidgePFM_CV_Rotations.dtseries.nii}"
+    PFM_RF_CV_THREADS="$PFM_RF_CV_THREADS" "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_cv_dispatch.py" \
+      --in-cifti "$PFM_INPUT_CIFTI" --distance-npy "$PFM_DISTANCE_MATRIX" \
+      --priors-mat "$PFM_PRIORS_MAT" --scan-info-json "$PFM_CONCAT_DIR/ScanInfo.json" \
+      --fd-txt "$PFM_CONCAT_DIR/FD.txt" --fd-threshold "$PFM_FD_THRESHOLD" \
+      --left-surf "$L_MID" --right-surf "$R_MID" \
+      --subject "$Subject" --surface-dir "${SubjectDir}/anat/T1w/fsaverage_LR32k" \
+      --flat-dir "${SubjectDir}/anat/MNINonLinear/fsaverage_LR32k" \
+      --taxonomy "$PFM_RF_TAXONOMY" --rotations-cifti "$cv_rotations" \
+      --lambdas "$PFM_RF_CV_LAMBDAS" --spatial-weights "$PFM_RF_CV_SPATIAL_WEIGHTS" \
+      --max-fc-loss "$PFM_RF_CV_MAX_FC_LOSS" \
+      --minimum-partition-minutes "$PFM_RF_CV_MIN_PARTITION_MINUTES" \
+      --max-comparisons "$PFM_RF_CV_MAX_COMPARISONS" --n-rotations "$PFM_RF_CV_N_ROTATIONS" \
+      --guard-seconds "$PFM_RF_CV_GUARD_SECONDS" \
+      --fc-weight "$PFM_RF_FC_WEIGHT" --fc-demean "$PFM_RF_FC_DEMEAN" \
+      --positive-fc-only "$PFM_RF_POSITIVE_FC_ONLY" --spatial-prior-transform "$PFM_RF_SPATIAL_PRIOR_TRANSFORM" \
+      --local-exclusion-mm "$PFM_RF_LOCAL_EXCLUSION_MM" --brain-structures-csv "$PFM_RF_BRAIN_STRUCTURES_CSV" \
+      --render "$PFM_RF_CV_RENDER" --keep-cache "$PFM_RF_CV_KEEP_CACHE" \
+      --outdir "$PFM_OUTDIR/$PFM_RF_CV_OUTDIR_NAME" "${cv_optional[@]}"
+    PFM_RF_REQUESTED_LAMBDA="$PFM_RF_LAMBDA"
+    PFM_RF_REQUESTED_SPATIAL_WEIGHT="$PFM_RF_SPATIAL_WEIGHT"
+    cv_selected="$("$PFM_PYTHON" - "$PFM_OUTDIR/$PFM_RF_CV_OUTDIR_NAME/selected_parameters.json" <<'CVPY'
+import json,math,sys
+p=json.load(open(sys.argv[1]));values=[p['lambda_value'],p['spatial_weight']]
+if any(not math.isfinite(v) or v<=0 for v in values):raise ValueError('Invalid saved CV parameters')
+print(*values)
+CVPY
+)"
+    read -r PFM_RF_LAMBDA PFM_RF_SPATIAL_WEIGHT <<< "$cv_selected"
+    echo "[pfm] CV selected lambda=$PFM_RF_LAMBDA spatial=$PFM_RF_SPATIAL_WEIGHT"
+  fi
+
   echo "[pfm] running Python RidgePFM"
   "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_fusion.py" \
     --in-cifti "$PFM_INPUT_CIFTI" \
@@ -344,6 +416,12 @@ if [[ "$PFM_STRATEGY" == "ridgepfm" ]]; then
     --subcort-priors-nii "$PFM_SUBCORT_PRIORS_ACPC" \
     --left-surf "$L_MID" \
     --right-surf "$R_MID"
+  if [[ "$PFM_RF_CV_ENABLE" == "1" ]]; then
+    "$PFM_PYTHON" "$MEDIR/lib/pfm_ridge_cv_finalize.py" \
+      --cv-root "$PFM_OUTDIR/$PFM_RF_CV_OUTDIR_NAME" \
+      --map "$PFM_OUTDIR/$PFM_RF_OUTFILE.dlabel.nii" \
+      --mapping "$PFM_OUTDIR/${PFM_RF_OUTFILE}_Mapping.json"
+  fi
   PFM_NETWORK_DLABEL="${PFM_OUTDIR}/${PFM_RF_OUTFILE}.dlabel.nii"
   PFM_AREAL_DISTANCE_MATRIX="$PFM_DISTANCE_MATRIX"
 
@@ -724,7 +802,7 @@ import sys
 destination, pipeline = Path(sys.argv[1]), Path(sys.argv[2])
 settings = {k: v for k, v in os.environ.items() if k.startswith('PFM_') and k != 'PFM_CONFIG_SNAPSHOT'}
 code = {}
-for name in ('pfm_ridge_fusion.py', 'pfm_module.py', 'pfm_ridge_confidence.py', 'pfm_subcort_regress.py'):
+for name in ('pfm_ridge_fusion.py', 'pfm_module.py', 'pfm_ridge_confidence.py', 'pfm_subcort_regress.py', 'pfm_ridge_cv.py', 'pfm_ridge_cv_dispatch.py', 'pfm_ridge_cv_metrics.py', 'pfm_ridge_cv_selection.py', 'pfm_ridge_cv_data.py'):
     path = pipeline / 'lib' / name
     if path.is_file():
         code[name] = hashlib.sha256(path.read_bytes()).hexdigest()

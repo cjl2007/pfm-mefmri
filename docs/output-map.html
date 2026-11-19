@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Output Map</title><link rel="stylesheet" href="assets/docs.css"></head><body><main><nav><a href="index.html">pfm-mefmri</a><a href="README.html">Guides</a></nav><h1 id="output-map">Output Map</h1><p>This page lists the output locations most users inspect after a run. The exact files depend on config settings, data type, and enabled modules.</p><p>See the <a href="output-gallery.html">illustrated output gallery</a> for example reportlets and interpretation, including the optional TANS handoff.</p><h2 id="tans-optional">TANS (optional)</h2><pre class="text"><code>&lt;SubjectDir&gt;/tans/
+  reports/index.html
+  targets/&lt;target&gt;/reports/
+  shared/export_&lt;subject&gt;/index.html
+  shared/export_&lt;subject&gt;/&lt;target&gt;/dose-calibration/DoseCalibrationReport.html
+</code></pre><p><code>TANS_OUTPUT_DIRNAME</code> changes the subject-relative root. Preserve the complete operator package; save downloaded session records outside it. See <a href="tans-integration.html">TANS integration</a>.</p><h2 id="functional-qc-root">Functional QC Root</h2><p>Controlled by:</p><div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb2-1" title="1"><span class="va">QC_OUTPUT_DIRNAME=</span><span class="st">&quot;QC&quot;</span></a></code></pre></div><p>Default location:</p><pre class="text"><code>&lt;SubjectDir&gt;/func/&lt;FUNC_DIRNAME&gt;/QC/
+</code></pre><h2 id="run-metadata">Run Metadata</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/QC/RunMetadata/pipeline_run_&lt;timestamp&gt;.txt
+</code></pre><p>Written when:</p><div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb5-1" title="1"><span class="va">RUN_CONFIG_SNAPSHOT=</span>1</a></code></pre></div><h2 id="coregistration-and-fieldmap-qc">Coregistration And Fieldmap QC</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/QC/Coreg/
+  functional_coregistration_qc.html
+  coreg_stability_metrics.tsv
+  manifest.json
+  reportlets/
+
+func/&lt;FUNC_DIRNAME&gt;/QC/Fieldmaps/
+  distortion_correction_qc.html
+  run_metrics.tsv
+  manifest.json
+  reportlets/
+</code></pre><h2 id="motion-grayplots">Motion Grayplots</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/QC/MotionGrayPlots/
+  motion_grayplots_qc.html
+  motion_grayplot_metrics.tsv
+  manifest.json
+  reportlets/
+</code></pre><h2 id="concatenated-ciftis">Concatenated CIFTIs</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/ConcatenatedCiftis/
+  &lt;FuncPrefix&gt;_&lt;InputTag&gt;_Concatenated.dtseries.nii
+  &lt;FuncPrefix&gt;_&lt;InputTag&gt;_Concatenated+FDlt&lt;FD&gt;.dtseries.nii
+  ScanInfo.json
+</code></pre><p>The FD-censored file is the default input for NSI, crawling seed FC movies, and PFM.</p><h2 id="nsi">NSI</h2><pre class="text"><code>pfm/QC/NSI/
+  &lt;prefix&gt;_run_config.txt
+  &lt;prefix&gt;_nsi.npz
+  &lt;prefix&gt;_hist_nsi.png
+  &lt;prefix&gt;_hist_nsi_by_network.png
+  &lt;prefix&gt;_network_hist_summary.csv
+  &lt;prefix&gt;_hist_nsi_by_structure.png
+  &lt;prefix&gt;_structure_hist_summary.csv
+  &lt;prefix&gt;_reliability.json
+</code></pre><p>The default prefix is derived from usability/reliability settings and total concatenated duration.</p><h2 id="crawling-seed-fc">Crawling Seed FC</h2><pre class="text"><code>pfm/QC/CrawlingSeedFC/
+  sub-&lt;Subject&gt;.mp4
+</code></pre><p>Optional/intermediate files may include rewritten scenes, dtseries links, source movies, and dense correlation files depending on <code>CRAWLING_SEED_FC_*</code> settings.</p><h2 id="pfm-ridgepfm">PFM RidgePFM</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/PFM/RidgePFM/
+  RidgePFM_VTX.dlabel.nii
+  RidgePFM_VTX.L.border
+  RidgePFM_VTX.R.border
+  RidgePFM_VTX_TemplateFit_R2.dtseries.nii
+  RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
+  RidgePFM_VTX+ArealParcellation.dlabel.nii
+  RidgePFM_VTX+ArealParcellation.L.border
+  RidgePFM_VTX+ArealParcellation.R.border
+  RidgePFM_VTX+ArealParcellation_FusedScoreSoftmax.dtseries.nii
+  RepeatAssignment/
+  RidgePFM_Vertexwise_Review.scene
+  RidgePFM_ArealParcellation_Review.scene
+  prep/
+  HomogeneityTest/
+</code></pre><h2 id="pfm-infomap">PFM Infomap</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/PFM/Infomap/
+  Bipartite_PhysicalCommunities.dtseries.nii
+  InfomapNetworkLabels_ModeConsensus.dlabel.nii
+  InfomapNetworkLabels_ProbabilityConsensus.dscalar.nii
+  InfomapNetworkLabels_ManualCorrections.csv
+  InfomapNetworkLabels_ManualCorrections.xlsx
+  GraphDensity_&lt;value&gt;/
+  HomogeneityTest/
+</code></pre><h2 id="areal-parcellation">Areal Parcellation</h2><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/PFM/RidgePFM/RidgePFM_VTX+ArealParcellation.dlabel.nii
+func/&lt;FUNC_DIRNAME&gt;/PFM/Infomap/InfomapNetworkLabels+ArealParcellation.dlabel.nii
+</code></pre><p>The exact prefix depends on strategy and manual-label settings.</p><h2 id="network-colored-grayplots">Network-colored grayplots</h2><p>After network mapping, grayplots are updated in place at:</p><pre class="text"><code>func/&lt;task&gt;/QC/MotionGrayPlots/motion_grayplots_qc.html
+</code></pre><p>The same reports show motion, physiology, and network-colored grayplots. Cortex and subcortex are grouped by network separately, with a thin divider. Both blocks use assignments from the same fitted dlabel; cortical-only exports leave subcortex unassigned. Early QC can run before mapping; fitted network labels replace the initial row order when available. Subsequent QC reuses those labels. No second report set or hash-named output folder is created.</p><p><code>&lt;PFM_OUTDIR&gt;/QC/MotionGrayPlots.html</code> links to these reports. <code>PFM_NETWORK_GRAYPLOTS_ENABLE=1</code> enables the update; <code>PFM_NETWORK_GRAYPLOTS_LABEL</code> optionally selects a fitted dlabel. Successfully replaced legacy hash folders are removed; unsuccessful updates preserve the existing report.</p>
+</main></body></html>

@@ -1,0 +1,70 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tutorials</title><link rel="stylesheet" href="assets/docs.css"></head><body><main><nav><a href="index.html">pfm-mefmri</a><a href="README.html">Guides</a></nav><h1 id="tutorials">Tutorials</h1><p>These tutorials are written as practical workflows. They assume the input data are already organized in the expected subject directory layout.</p><h2 id="tutorial-1-run-one-resting-state-subject">Tutorial 1: Run One Resting-State Subject</h2><p>Goal: produce preprocessing, QC, concatenated CIFTI, NSI, and PFM outputs for one subject.</p><p>Config choices:</p><div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb1-1" title="1"><span class="va">FUNC_DIRNAME=</span><span class="st">&quot;rest&quot;</span></a>
+<a class="sourceLine" id="cb1-2" title="2"><span class="va">FUNC_FILE_PREFIX=</span><span class="st">&quot;Rest&quot;</span></a>
+<a class="sourceLine" id="cb1-3" title="3"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;validate&quot;</span></a>
+<a class="sourceLine" id="cb1-4" title="4"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;&quot;</span></a>
+<a class="sourceLine" id="cb1-5" title="5"><span class="va">PROCESSING_MODE=</span><span class="st">&quot;auto&quot;</span></a>
+<a class="sourceLine" id="cb1-6" title="6"><span class="va">DISTORTION_CORRECTION_MODE=</span><span class="st">&quot;medic&quot;</span></a>
+<a class="sourceLine" id="cb1-7" title="7"><span class="va">MULTI_ECHO_DENOISE_METHOD=</span><span class="st">&quot;meica&quot;</span></a>
+<a class="sourceLine" id="cb1-8" title="8"><span class="va">CONCAT_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb1-9" title="9"><span class="va">NSI_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb1-10" title="10"><span class="va">PFM_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb1-11" title="11"><span class="va">PFM_STRATEGY=</span><span class="st">&quot;ridgepfm&quot;</span></a></code></pre></div><p>Run:</p><div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb2-1" title="1"><span class="fu">bash</span> bin/mefmri_pipeline.sh /path/to/study/ME06</a></code></pre></div><p>Review in this order:</p><ol><li><code>func/rest/QC/Validation/</code></li><li><code>func/rest/QC/Coreg/functional_coregistration_qc.html</code></li><li><code>func/rest/QC/Fieldmaps/distortion_correction_qc.html</code></li><li><code>func/rest/QC/MotionGrayPlots/motion_grayplots_qc.html</code></li><li><code>pfm/QC/NSI/</code></li><li><code>func/rest/PFM/RidgePFM/RidgePFM_VTX.dlabel.nii</code></li></ol><p>Figure slots:</p><pre class="text"><code>docs/assets/tutorial-one-subject-coreg.png
+docs/assets/tutorial-one-subject-motion.png
+docs/assets/tutorial-one-subject-ridgefusion.png
+</code></pre><h2 id="tutorial-2-rerun-only-qc-reports">Tutorial 2: Rerun Only QC Reports</h2><p>Goal: regenerate reports after preprocessing outputs already exist.</p><p>Coreg/SDC QC:</p><div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb4-1" title="1"><span class="va">COREG_SDC_QC_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb4-2" title="2"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;coreg&quot;</span></a>
+<a class="sourceLine" id="cb4-3" title="3"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;coreg&quot;</span></a></code></pre></div><p>Motion grayplots QC:</p><div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb5-1" title="1"><span class="va">MOTION_GRAYPLOTS_QC_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb5-2" title="2"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;mgtr&quot;</span></a>
+<a class="sourceLine" id="cb5-3" title="3"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;mgtr&quot;</span></a></code></pre></div><p>The exact rerun window depends on which outputs already exist. The QC scripts read existing preprocessing outputs and write HTML/reportlet files under <code>func/&lt;FUNC_DIRNAME&gt;/QC/</code>.</p><h2 id="tutorial-3-check-whether-a-dataset-is-usable-for-pfm">Tutorial 3: Check Whether A Dataset Is Usable For PFM</h2><p>Goal: run NSI usability on the FD-censored concatenated CIFTI.</p><p>Config:</p><div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb6-1" title="1"><span class="va">NSI_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb6-2" title="2"><span class="va">NSI_USE_EXTERNAL_CLI=</span>1</a>
+<a class="sourceLine" id="cb6-3" title="3"><span class="va">NSI_USABILITY_MODEL=</span>1</a>
+<a class="sourceLine" id="cb6-4" title="4"><span class="va">NSI_RELIABILITY_MODEL=</span>0</a>
+<a class="sourceLine" id="cb6-5" title="5"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;nsi&quot;</span></a>
+<a class="sourceLine" id="cb6-6" title="6"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;nsi&quot;</span></a></code></pre></div><p>Run:</p><div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb7-1" title="1"><span class="fu">bash</span> bin/mefmri_pipeline.sh /path/to/study/ME06</a></code></pre></div><p>Inspect:</p><pre class="text"><code>pfm/QC/NSI/*_run_config.txt
+pfm/QC/NSI/*_nsi.npz
+pfm/QC/NSI/*_hist_nsi.png
+pfm/QC/NSI/*_hist_nsi_by_network.png
+pfm/QC/NSI/*_hist_nsi_by_structure.png
+</code></pre><p>Interpretation:</p><ul><li>Broadly higher NSI supports better expected PFM usability.</li><li>Network/structure histograms reveal whether quality is system-specific.</li><li>The run config confirms the input CIFTI, censoring threshold, duration, structures, memory controls, and exact CLI call.</li></ul><p>Figure slots:</p><pre class="text"><code>docs/assets/tutorial-nsi-usability-hist.png
+docs/assets/tutorial-nsi-network-hist.png
+</code></pre><h2 id="tutorial-4-estimate-reliability-from-a-scout-scan">Tutorial 4: Estimate Reliability From A Scout Scan</h2><p>Goal: ask how reliable a longer map may be from a shorter observed sample.</p><p>Config:</p><div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb10-1" title="1"><span class="va">NSI_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb10-2" title="2"><span class="va">NSI_USE_EXTERNAL_CLI=</span>1</a>
+<a class="sourceLine" id="cb10-3" title="3"><span class="va">NSI_USABILITY_MODEL=</span>0</a>
+<a class="sourceLine" id="cb10-4" title="4"><span class="va">NSI_RELIABILITY_MODEL=</span>1</a>
+<a class="sourceLine" id="cb10-5" title="5"><span class="va">NSI_RELIABILITY_NSI_T=</span>10</a>
+<a class="sourceLine" id="cb10-6" title="6"><span class="va">NSI_RELIABILITY_QUERY_T=</span>60</a>
+<a class="sourceLine" id="cb10-7" title="7"><span class="va">NSI_EXTERNAL_THRESHOLDS=</span><span class="st">&quot;0.6,0.7,0.8&quot;</span></a>
+<a class="sourceLine" id="cb10-8" title="8"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;nsi&quot;</span></a>
+<a class="sourceLine" id="cb10-9" title="9"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;nsi&quot;</span></a></code></pre></div><p>Inspect:</p><pre class="text"><code>pfm/QC/NSI/*_reliability.json
+pfm/QC/NSI/*_run_config.txt
+</code></pre><p>Use this when deciding whether a participant needs more scan time before PFM.</p><h2 id="tutorial-5-review-ridgepfm-pfm">Tutorial 5: Review RidgePFM PFM</h2><p>Goal: inspect the default fast PFM path.</p><p>Config:</p><div class="sourceCode" id="cb12"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb12-1" title="1"><span class="va">PFM_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb12-2" title="2"><span class="va">PFM_STRATEGY=</span><span class="st">&quot;ridgepfm&quot;</span></a>
+<a class="sourceLine" id="cb12-3" title="3"><span class="va">PFM_HOMOGENEITY_TEST_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb12-4" title="4"><span class="va">PFM_AREAL_ENABLE=</span>0</a>
+<a class="sourceLine" id="cb12-5" title="5"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;pfm&quot;</span></a>
+<a class="sourceLine" id="cb12-6" title="6"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;pfm&quot;</span></a></code></pre></div><p>Inspect:</p><pre class="text"><code>func/rest/PFM/RidgePFM/RidgePFM_VTX.dlabel.nii
+func/rest/PFM/RidgePFM/RidgePFM_VTX_TemplateFit_R2.dtseries.nii
+func/rest/PFM/RidgePFM/RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
+func/rest/PFM/RidgePFM/HomogeneityTest/RidgePFMHomogeneity_summary.png
+</code></pre><p>In Workbench:</p><ul><li>Load the subject midthickness or inflated surfaces.</li><li>Load <code>RidgePFM_VTX.dlabel.nii</code> as the primary label map.</li><li>Load probability/R2 maps as supporting layers.</li><li>Compare the map against QC reports before interpreting unusual network boundaries.</li></ul><p>Figure slots:</p><pre class="text"><code>docs/assets/tutorial-ridgefusion-workbench.png
+docs/assets/tutorial-ridgefusion-homogeneity.png
+</code></pre><h2 id="tutorial-6-review-infomap-and-apply-manual-corrections">Tutorial 6: Review Infomap And Apply Manual Corrections</h2><p>Goal: run graph-density Infomap, review algorithmic labels, then apply manual corrections without rerunning Infomap.</p><p>Config for Infomap:</p><div class="sourceCode" id="cb15"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb15-1" title="1"><span class="va">PFM_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb15-2" title="2"><span class="va">PFM_STRATEGY=</span><span class="st">&quot;infomap&quot;</span></a>
+<a class="sourceLine" id="cb15-3" title="3"><span class="va">PFM_INFOMAP_NETWORK_MAPPING_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb15-4" title="4"><span class="va">PFM_HOMOGENEITY_TEST_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb15-5" title="5"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;pfm&quot;</span></a>
+<a class="sourceLine" id="cb15-6" title="6"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;pfm&quot;</span></a></code></pre></div><p>Inspect:</p><pre class="text"><code>func/rest/PFM/Infomap/GraphDensity_&lt;value&gt;/
+func/rest/PFM/Infomap/InfomapNetworkLabels_ModeConsensus.dlabel.nii
+func/rest/PFM/Infomap/InfomapNetworkLabels_ProbabilityConsensus.dscalar.nii
+func/rest/PFM/Infomap/HomogeneityTest/InfomapDensityHomogeneity_summary.png
+</code></pre><p>Edit the per-density manual correction tables:</p><pre class="text"><code>GraphDensity_&lt;value&gt;/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.csv
+</code></pre><p>Applying manual corrections is outside the main pipeline. Retain the review tables for a future standalone update script.</p><p>Figure slots:</p><pre class="text"><code>docs/assets/tutorial-infomap-density-review.png
+docs/assets/tutorial-infomap-manual-corrections.png
+docs/assets/tutorial-infomap-adjusted-consensus.png
+</code></pre><h2 id="tutorial-7-build-the-crawling-seed-fc-movie">Tutorial 7: Build The Crawling Seed FC Movie</h2><p>Goal: create a fast visual scan of seed-based FC structure from the final concatenated CIFTI.</p><p>Config:</p><div class="sourceCode" id="cb19"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb19-1" title="1"><span class="va">CRAWLING_SEED_FC_ENABLE=</span>1</a>
+<a class="sourceLine" id="cb19-2" title="2"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;concat&quot;</span></a>
+<a class="sourceLine" id="cb19-3" title="3"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;concat&quot;</span></a></code></pre></div><p>Run:</p><div class="sourceCode" id="cb20"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb20-1" title="1"><span class="fu">bash</span> bin/mefmri_pipeline.sh /path/to/study/ME06</a></code></pre></div><p>Inspect:</p><pre class="text"><code>pfm/QC/CrawlingSeedFC/sub-ME06.mp4
+</code></pre><p>This module can be slow and memory-intensive because it creates a dense correlation CIFTI before rendering. For routine batches, disable it unless the movie is needed:</p><div class="sourceCode" id="cb22"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb22-1" title="1"><span class="va">CRAWLING_SEED_FC_ENABLE=</span>0</a></code></pre></div><p>Figure/movie slots:</p><pre class="text"><code>docs/assets/tutorial-crawling-seed-fc-still.png
+docs/assets/tutorial-crawling-seed-fc-demo.mp4
+</code></pre>
+</main></body></html>

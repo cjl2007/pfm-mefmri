@@ -28,7 +28,9 @@ def fsl_temporal_weights(n,offsets,folder):
     env=os.environ.copy();env['FSLOUTPUTTYPE']='NIFTI_GZ'
     executable=shutil.which('slicetimer')
     if executable is None:
-        candidate=Path(os.environ.get('FSLDIR','/usr/local/fsl'))/'bin/slicetimer'
+        fsl_dir=os.environ.get('FSLDIR')
+        if not fsl_dir:raise FileNotFoundError('FSL slicetimer is required on PATH or under FSLDIR/bin')
+        candidate=Path(fsl_dir)/'bin/slicetimer'
         if not candidate.is_file():raise FileNotFoundError('FSL slicetimer is required on PATH or under FSLDIR/bin')
         executable=str(candidate)
     subprocess.run([executable,'-i',str(src),'-o',str(out),'-r','1','--tcustom='+str(timing)],check=True,capture_output=True,env=env)

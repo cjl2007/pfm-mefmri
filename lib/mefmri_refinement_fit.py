@@ -18,7 +18,12 @@ from mefmri_refinement_geometry import rigid, center_corrections
 def command(args, log):
     executable = shutil.which(args[0])
     if executable is None:
-        executable = str(Path(os.environ.get('FSLDIR', '/usr/local/fsl')) / 'bin' / args[0])
+        fsl_dir = os.environ.get('FSLDIR')
+        if not fsl_dir:
+            raise FileNotFoundError(str(args[0]) + ' is required on PATH or under FSLDIR/bin')
+        executable = str(Path(fsl_dir) / 'bin' / args[0])
+        if not Path(executable).is_file():
+            raise FileNotFoundError('Missing FSL executable: ' + executable)
     proc = subprocess.run([executable] + list(map(str, args[1:])),
                           env=dict(os.environ, FSLOUTPUTTYPE='NIFTI_GZ'),
                           capture_output=True, text=True)

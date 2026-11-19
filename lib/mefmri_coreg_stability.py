@@ -9,6 +9,8 @@ from nibabel.processing import resample_from_to
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from mefmri_figure_style import configure_matplotlib,figure_font_path,report_css
+configure_matplotlib()
 from PIL import Image
 
 def rms_matrix(values):
@@ -17,6 +19,122 @@ def rms_matrix(values):
     d=np.mean(x*x,axis=1);sq=d[:,None]+d[None,:]-2*(x@x.T)/x.shape[1]
     out=100*np.sqrt(np.maximum(sq,0));out[np.abs(sq)<1e-12]=0;np.fill_diagonal(out,0)
     return out
+
+def render_alignment_frames(subject_dir, reference, normalized, items, mask, center, limits):
+    """Sample fixed anatomical planes at display resolution, with fixed tissue contours.
+
+    Sampling affects report pixels only. Quantitative QC continues to use the
+    original functional reference grid and undilated brain mask.
+    """
+    from scipy.ndimage import map_coordinates, binary_dilation
+    from PIL import ImageDraw, ImageFont
+    from matplotlib import font_manager
+
+    anatomy_dir = Path(subject_dir) / 'anat/T1w'
+    brain_path = anatomy_dir / 'T1w_acpc_dc_restore_brain.nii.gz'
+    anatomy = nib.as_closest_canonical(nib.load(brain_path))
+    anatomy_data = np.asarray(anatomy.dataobj, dtype=np.float32)
+    anatomical_mask = binary_fill_holes(anatomy_data > 0)
+    spacing = nib.affines.voxel_sizes(anatomy.affine)
+    anatomical_display = distance_transform_edt(~anatomical_mask, sampling=spacing) <= 3
+    coords = np.array(np.where(anatomical_mask))
+    bounds = [(max(0, int(coords[d].min()) - int(np.ceil(3 / spacing[d]))),
+               min(anatomy.shape[d], int(coords[d].max()) + int(np.ceil(3 / spacing[d])) + 1))
+              for d in range(3)]
+    center_world = nib.affines.apply_affine(reference.affine, center)
+    anatomical_center = nib.affines.apply_affine(np.linalg.inv(anatomy.affine), center_world)
+    tissue_specs = []
+    sources = {}
+    ribbon_path = anatomy_dir / 'ribbon.nii.gz'
+    aseg_path = anatomy_dir / 'aparc+aseg.nii.gz'
+    if ribbon_path.exists():
+        ribbon = nib.load(ribbon_path)
+        labels = np.asarray(ribbon.dataobj)
+        tissue_specs.extend([
+            ('White matter', np.isin(labels, [2, 41]), ribbon.affine, (67, 221, 232)),
+            ('Outer cortical gray matter', np.isin(labels, [2, 3, 41, 42]), ribbon.affine, (255, 173, 69)),
+        ])
+        sources['ribbon'] = str(ribbon_path)
+    if aseg_path.exists():
+        aseg = nib.load(aseg_path)
+        labels = np.asarray(aseg.dataobj)
+        tissue_specs.append(('Ventricular CSF', np.isin(labels, [4, 5, 14, 15, 43, 44, 72]),
+                             aseg.affine, (193, 135, 255)))
+        sources['ventricular_segmentation'] = str(aseg_path)
+    if not tissue_specs:
+        tissue_specs.append(('Brain boundary', anatomical_mask, anatomy.affine, (255, 173, 69)))
+    tlim = np.percentile(anatomy_data[anatomical_mask], [1, 99.5])
+    plane_geometry = []
+    tile_width, tile_height = 600, 440
+    for axis in range(3):
+        other = [d for d in range(3) if d != axis]
+        width_mm = (bounds[other[0]][1] - bounds[other[0]][0]) * spacing[other[0]]
+        height_mm = (bounds[other[1]][1] - bounds[other[1]][0]) * spacing[other[1]]
+        # One world-space location per output pixel, with isotropic physical scale.
+        scale = min((tile_width - 24) / width_mm, (tile_height - 24) / height_mm)
+        width = max(2, int(round(width_mm * scale)))
+        height = max(2, int(round(height_mm * scale)))
+        horizontal = np.linspace(bounds[other[0]][0], bounds[other[0]][1] - 1, width)
+        vertical = np.linspace(bounds[other[1]][1] - 1, bounds[other[1]][0], height)
+        yy, xx = np.meshgrid(vertical, horizontal, indexing='ij')
+        ijk = np.empty((3, height * width))
+        ijk[axis] = anatomical_center[axis]
+        ijk[other[0]] = xx.ravel()
+        ijk[other[1]] = yy.ravel()
+        world = nib.affines.apply_affine(anatomy.affine, ijk.T)
+        functional_ijk = nib.affines.apply_affine(np.linalg.inv(reference.affine), world).T
+        keep = map_coordinates(anatomical_display.astype(np.float32), ijk, order=1,
+                               mode='constant', cval=0).reshape(height, width) >= .5
+        edges = []
+        for name, tissue, affine, color in tissue_specs:
+            tissue_ijk = nib.affines.apply_affine(np.linalg.inv(affine), world).T
+            section = map_coordinates(tissue.astype(np.float32), tissue_ijk, order=1,
+                                      mode='constant', cval=0).reshape(height, width) >= .5
+            edge = binary_dilation(section & ~binary_erosion(section))
+            edges.append((edge & keep, color))
+        t1 = map_coordinates(anatomy_data, ijk, order=1, mode='constant', cval=0).reshape(height, width)
+        plane_geometry.append((functional_ijk, keep, edges, t1, (width, height)))
+
+    def panel(values, keep, edges, display_range):
+        lo, hi = display_range
+        gray = np.uint8(np.clip((values - lo) / max(float(hi - lo), 1e-8), 0, 1) * 255)
+        rgb = np.repeat(gray[:, :, None], 3, axis=2)
+        rgb[~keep] = 0
+        for edge, color in edges:
+            rgb[edge] = color
+        image = Image.fromarray(rgb)
+        tile = Image.new('RGB', (tile_width, tile_height), 'black')
+        tile.paste(image, ((tile_width - image.width) // 2, (tile_height - image.height) // 2))
+        return tile
+
+    font_path = figure_font_path()
+    font = ImageFont.truetype(font_path, 24)
+    small_font = ImageFont.truetype(font_path, 21)
+    anatomy_tiles = [panel(t1, keep, edges, tlim) for _, keep, edges, t1, _ in plane_geometry]
+    frames = []
+    for i, ((run, path, scale), data) in enumerate(zip(items, normalized)):
+        canvas = Image.new('RGB', (1800, 1060), 'black')
+        draw = ImageDraw.Draw(canvas)
+        draw.text((20, 12), f'Scan {i + 1} · session {run.session}, run {run.run} · functional reference',
+                  fill='white', font=font)
+        for j, (name, tissue, affine, color) in enumerate(tissue_specs):
+            draw.text((20 + j * 570, 48), name, fill=color, font=small_font)
+        for axis, (ijk, keep, edges, t1, size) in enumerate(plane_geometry):
+            values = map_coordinates(data, ijk, order=1, mode='constant', cval=0).reshape(size[1], size[0])
+            canvas.paste(panel(values, keep, edges, limits), (axis * tile_width, 105))
+            canvas.paste(anatomy_tiles[axis], (axis * tile_width, 580))
+            draw.text((axis * tile_width + 20, 82), ['Sagittal', 'Coronal', 'Axial'][axis],
+                      fill='#cbd6e5', font=small_font)
+        draw.text((20, 550), 'Fixed T1 anatomy · identical slice coordinates and tissue contours', fill='white', font=font)
+        draw.text((20, 1026), 'Display sampling only · fixed anatomical brain mask + 3 mm margin · source data unchanged',
+                  fill='#cbd6e5', font=small_font)
+        frames.append(canvas)
+    return frames, dict(anatomy_source=str(brain_path), anatomy_voxel_size_mm=spacing.tolist(),
+                        tissue_sources=sources, tissue_legend=[name for name, *_ in tissue_specs],
+                        canvas_pixels=[1800, 1060], display_interpolation='linear',
+                        fixed_world_slice_center_mm=center_world.tolist(),
+                        quantitative_reference_grid_unchanged=True)
+
 
 def generate(subject_dir,func_name,xfms_name,runs,reportlets,resolve_reference,display_limits=None):
     reportlets=Path(reportlets);reportlets.mkdir(parents=True,exist_ok=True)
@@ -69,20 +187,11 @@ def generate(subject_dir,func_name,xfms_name,runs,reportlets,resolve_reference,d
     # Same slices, mask, intensity limits and contours for every scan; no fade/interpolated frames.
     coords=np.array(np.where(mask));center=np.median(coords,axis=1).astype(int);center[0]=min(ref.shape[0]-1,center[0]+int(round(8/zooms[0])));bounds=[(max(0,int(coords[d].min())-2),min(ref.shape[d],int(coords[d].max())+3)) for d in range(3)]
     limits=np.asarray(display_limits) if display_limits is not None else np.percentile(np.concatenate([v[mask][::8] for v in normalized]),[1,99.5]);tlim=np.percentile(t1[mask],[1,99.5]);frames=[]
-    def pane(data,axis,lim):
-        sl=np.rot90(np.take(data,center[axis],axis=axis));keep=np.rot90(np.take(display,center[axis],axis=axis));cont=np.rot90(np.take(mask,center[axis],axis=axis));other=[d for d in range(3) if d!=axis];a,c=bounds[other[1]];d,e=bounds[other[0]];# rotated array reverses its first dimension
-        roi=(slice(ref.shape[other[1]]-c,ref.shape[other[1]]-a),slice(d,e));sl=sl[roi];keep=keep[roi];cont=cont[roi];g=np.uint8(np.clip((sl-lim[0])/(lim[1]-lim[0]),0,1)*255);rgb=np.repeat(g[:,:,None],3,axis=2);rgb[~keep]=0;rgb[cont&~binary_erosion(cont)]=(255,173,69);im=Image.fromarray(rgb);im.thumbnail((390,260));tile=Image.new('RGB',(400,270),'black');tile.paste(im,((400-im.width)//2,(270-im.height)//2));return tile
-    from PIL import ImageDraw,ImageFont
-    from matplotlib import font_manager
-    font=ImageFont.truetype(font_manager.findfont("DejaVu Sans"),18)
-    for i,(run,path,scale) in enumerate(items):
-        canvas=Image.new('RGB',(1200,620),'black');draw=ImageDraw.Draw(canvas);draw.text((15,8),f'Scan {i+1} · session {run.session}, run {run.run} · functional reference',fill='white',font=font)
-        for axis in range(3):canvas.paste(pane(normalized[i],axis,limits),(axis*400,32));canvas.paste(pane(t1,axis,tlim),(axis*400,330))
-        draw.text((15,310),'Fixed T1 anatomy · fixed brain mask + 3 mm display margin',fill='white',font=font);frames.append(canvas)
+    frames,render_info=render_alignment_frames(subject_dir,ref,normalized,items,mask,center,limits)
     gif=reportlets/'subj_desc-coreg_unwarpedSBRefBBR_fade.gif'
     sampled=frames[::max(1,len(frames)//12)][:12];sheet=Image.new('RGB',(1600,660),'black')
     for j,im in enumerate(sampled):sheet.paste(im.resize((400,220)),((j%4)*400,(j//4)*220))
-    palette=sheet.quantize(colors=256,method=Image.Quantize.MEDIANCUT,dither=Image.Dither.NONE)
+    palette=Image.new('P',(1,1));palette.putpalette([c for v in np.linspace(0,255,253).astype(int) for c in (int(v),)*3]+[67,221,232,255,173,69,193,135,255])
     encoded=[im.quantize(palette=palette,dither=Image.Dither.NONE) for im in frames]
     encoded[0].save(gif,save_all=True,append_images=encoded[1:],duration=250,loop=0,disposal=2,optimize=False)
     frames[0].save(reportlets/'subj_desc-coreg_T1wAnchor.png')
@@ -93,5 +202,5 @@ def generate(subject_dir,func_name,xfms_name,runs,reportlets,resolve_reference,d
     summary={}
     for val,label in [(False,'within_session'),(True,'between_sessions')]:
         values=[r['adjacent_rms_percent'] for r in rows[1:] if r['between_sessions']==val];summary[label]=dict(transitions=len(values),median_rms_percent=float(np.median(values)) if values else None)
-    (reportlets/'subj_desc-coreg_RMSMethods.json').write_text(json.dumps(dict(definition='100 * sqrt(mean((I_i/median_brain(I_i) - I_j/median_brain(I_j))**2))',mask_source=str(brainpath),boundary_definition='One reference-grid voxel inward from fixed brain-mask edge',display_margin_mm=3,intensity_limits_shared_across_scans=True,first_scan_adjacent_value=None,summary=summary,interpretation='Image consistency, affected by contrast, noise, and registration; not displacement in millimeters or proof of anatomical correctness'),indent=2)+'\n')
-    return dict(display_limits=limits.tolist(),anchor_png='subj_desc-coreg_T1wAnchor.png',fade_gif=gif.name,frame_pngs=[],similarity_matrix_png=pairplot.name,stability_png=plot.name,metrics=rows,run_rms=distance.tolist(),matrix_kind='RMS difference; lower is more similar',session_summary=summary)
+    (reportlets/'subj_desc-coreg_RMSMethods.json').write_text(json.dumps(dict(definition='100 * sqrt(mean((I_i/median_brain(I_i) - I_j/median_brain(I_j))**2))',mask_source=str(brainpath),boundary_definition='One reference-grid voxel inward from fixed brain-mask edge',display_margin_mm=3,display_renderer=render_info,intensity_limits_shared_across_scans=True,first_scan_adjacent_value=None,summary=summary,interpretation='Image consistency, affected by contrast, noise, and registration; not displacement in millimeters or proof of anatomical correctness'),indent=2)+'\n')
+    return dict(display_limits=limits.tolist(),display_renderer=render_info,anchor_png='subj_desc-coreg_T1wAnchor.png',fade_gif=gif.name,frame_pngs=[],similarity_matrix_png=pairplot.name,stability_png=plot.name,metrics=rows,run_rms=distance.tolist(),matrix_kind='RMS difference; lower is more similar',session_summary=summary)

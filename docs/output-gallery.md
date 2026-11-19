@@ -1,63 +1,62 @@
-# Quality-control gallery
+# Quality control
 
-Examples of alignment, motion and physiology, expert-calibrated FC quality scores, and crawling-seed FC for
-reviewing processed individual data. Individual 1 supplies the longitudinal and run-level
-examples; older summary reportlets retain their original densely sampled examples.
+Examples of alignment, motion, physiology, FC quality, and seed-based connectivity from the pipeline's saved outputs.
 
-## Alignment and fieldmap/SDC review
+## Within-subject alignment
 
-[Focused transitions and the complete longitudinal alignment comparison](longitudinal-alignment.md)
-show saved independent alignment and within-subject template refinement.
+[![Within-subject alignment against fixed anatomy](assets/me01-alignment-refined.gif)](assets/me01-alignment-refined.mp4)
 
-![One corrected run reference with anatomical outlines in three orthogonal views](assets/qc-coreg-bbr.png)
+Functional references across 44 acquisitions from one individual, with within-subject refinement. The anatomy and tissue contours stay fixed.
 
-![Original susceptibility-distortion correction flicker comparison](assets/qc-sdc-flicker.gif)
+### Effect of refinement
 
-These are production reportlets from `QC/Coreg/` and `QC/Fieldmaps/`. Review the complete HTML reports and metrics, including regions with weak signal
-or potential susceptibility-related dropout.
+[![The same acquisitions without and with refinement](assets/me01-alignment-comparison.gif)](assets/me01-alignment-comparison.mp4)
 
-## Signal quality and network signal
+The same scans without refinement (top) and with refinement (bottom). Both use the same views, crop, and anatomical contours.
 
-![Individual 1 motion, respiratory and pulse traces, FD, DVARS, and grayplots through denoising and MGTR](assets/qc-motion-grayplots-me01.png)
+![Scan-reference differences and spatial sharpness](assets/coreg-stability/refinement_stability_sharpness.png)
 
-The motion figure shows **Individual 1 session 1, run 1**. It uses saved processing-stage
-CIFTIs, the production QC plotting code, and 1,200 sampled grayordinates. The
-respiratory and pulse channels are aligned to scanner acquisition ticks and
-shown at their native temporal detail. No denoising is rerun. Its 0.3 mm FD line
-reflects the example configuration, not a recommended universal threshold.
+Refinement reduces differences between scans while preserving spatial sharpness. Lines connect the same scan; boxes show the median and middle 50%.
 
-![Censoring burden and signal-motion coupling across 26 runs in numeric session order](assets/qc-motion-coupling.png)
+[Processing and configuration](longitudinal-alignment.md) · [More alignment examples](coreg-stability-examples.md)
 
-This unchanged production reportlet summarizes all 26 runs. The lower panels
-compare absolute signal-motion correlations through processing stages after FD
-censoring; faint dashed traces show the corresponding values before censoring.
-Lower coupling alone does not establish that every source of artifact is removed.
+## Motion and physiology
 
-![Expert-calibrated FC quality: model-estimated PFM usability](assets/qc-nsi-usability.png)
+![Motion, physiology, and signals through denoising](assets/qc-motion-grayplots-me01.png)
 
-![FC quality-score distributions across example networks](assets/qc-nsi-networks.png)
+Motion, respiratory and pulse traces, FD, DVARS, and grayplots through denoising and MGTR. Cortex and subcortex are separated by a thin divider and grouped by network within each block. The colored strips identify networks; this example’s cortical-only export leaves the subcortical strip gray.
 
-The curve shows model-estimated PFM usability from expert-calibrated FC quality
-scores (Lynch et al., 2026; implemented by the NSI module). It is not a
-direct test–retest measurement, and its operating characteristics should not be
-assumed to transfer to every acquisition or population. Network-wise summaries
-help reveal heterogeneous quality that a whole-brain average can hide.
+![Censoring and signal-motion coupling](assets/qc-motion-coupling.png)
 
-## Seed-FC review
+The summary compares censoring burden and signal-motion coupling across runs and processing stages. Dashed traces show coupling before censoring.
 
-![Animated preview of the Individual 1 crawling cortical seed-FC movie](assets/qc-seed-fc-me01.gif)
+## FC quality
 
-[Full Individual 1 seed-FC movie](assets/qc-seed-fc-me01.mp4). The looping GIF samples one
-frame per second from the 70.2-second movie and plays at four frames per second,
-covering the full sweep after a three-second opening callout identifies the
-small white seed. The MP4 retains all frames and has no added callout. The
-[still image](assets/qc-seed-fc-me01.png) is decoded at 12 seconds. The
-movie uses Individual 1 subject-specific surfaces and the concatenated, 1.7 mm-smoothed
-resting-state input used for the RidgePFM example.
-The movie and scene are written to `QC/CrawlingSeedFC/` when enabled.
+![Model-estimated PFM usability](assets/qc-nsi-usability.png)
 
-## Provenance and sharing
+Expert-calibrated FC quality scores estimate PFM usability (Lynch et al., 2026), using the NSI module.
 
-`assets/manifest.json` records bundled file fingerprints and rendering types.
-Source data and local provenance remain separate from the documentation assets.
-Participant-derived figures require sharing review before public distribution.
+![FC quality by network](assets/qc-nsi-networks.png)
+
+Network-wise distributions show variation that a whole-brain average can hide.
+
+## Seed-based FC
+
+![A cortical seed moving across the surface](assets/qc-seed-fc-me01.gif)
+
+The small white marker identifies the seed; surface colors show its FC map. The animation samples the full cortical sweep.
+
+[Full-resolution movie](assets/qc-seed-fc-me01.mp4) · [Still image](assets/qc-seed-fc-me01.png)
+
+<details>
+<summary>Example data and files</summary>
+
+The motion example uses Individual 1, session 1, run 1, with 1,200 sampled grayordinates and physiological channels aligned to acquisition ticks. The 0.3 mm FD line reflects that example's configuration. The coupling summary uses 26 runs.
+
+The seed-FC example uses subject-specific surfaces and the concatenated resting-state input used for the network-map example, with 1.7 mm Gaussian σ smoothing. The GIF samples one frame per second from a 70.2-second movie and plays at four frames per second. A brief opening callout identifies the seed.
+
+Alignment and distortion-correction reportlets are saved under `QC/Coreg/` and `QC/Fieldmaps/`. Dataset-level seed-FC movies are saved under `QC/CrawlingSeedFC/`.
+
+[Asset fingerprints](assets/manifest.json).
+
+</details>

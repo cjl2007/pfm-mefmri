@@ -18,11 +18,17 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mefmri_figure_style import configure_matplotlib,report_css
+configure_matplotlib()
 import nibabel as nb
 import numpy as np
 
 from mefmri_motion import FD_METHOD, compute_fd_from_motion, filtered_motion_for_fd
 
+
+from mefmri_motor_task_strip import load_motor_strip, draw_motor_strip
+
+from mefmri_network_grayplot import network_order, draw_network_strip, annotate_report
 
 REPORT_FILENAME = "motion_grayplots_qc.html"
 GRAYPLOT_BASE_WIDTH_IN = 14.0
@@ -368,12 +374,16 @@ def plot_motion_grayplot_panel(
     physio: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
     fd_threshold: float = 0.3,
     boundaries: list[int] | None = None,
+    task_strip: dict | None = None,
+    network_info: dict | None = None,
 ) -> None:
+    if network_info is not None:
+        stage_z = {k: v[:, network_info["order"]] for k,v in stage_z.items()}
     deltas = [(a, b) for a, b in zip(stages[:-1], stages[1:]) if a in stage_z and b in stage_z]
     physio = physio or {}
     physio_names = [name for name in ("respiration", "pulse") if name in physio]
-    n_rows = 3 + len(physio_names) + len(stages) + len(deltas)
-    heights = [1.0] + [0.55 for _ in physio_names] + [0.5, 0.7] + [2.2 for _ in stages] + [1.6 for _ in deltas]
+    n_rows = 3 + int(task_strip is not None) + len(physio_names) + len(stages) + len(deltas)
+    heights = [1.0] + ([0.5] if task_strip is not None else []) + [0.55 for _ in physio_names] + [0.5, 0.7] + [2.2 for _ in stages] + [1.6 for _ in deltas]
     n_frames = int(next(iter(stage_z.values())).shape[0])
     width_in = min(GRAYPLOT_MAX_WIDTH_IN, max(GRAYPLOT_BASE_WIDTH_IN, n_frames / GRAYPLOT_FRAMES_PER_INCH))
     fig, axes = plt.subplots(
@@ -424,6 +434,8 @@ def plot_motion_grayplot_panel(
     ax.grid(True, axis="y", alpha=0.2)
 
     row = 1
+    if task_strip is not None:
+        draw_motor_strip(axes[row], task_strip); row += 1
     for name in physio_names:
         ax = axes[row]; px, py = physio[name]
         ax.plot(px, py, color="#2563eb" if name == "respiration" else "#7c3aed", lw=0.65)
@@ -487,40 +499,35 @@ def plot_motion_grayplot_panel(
     row += 1
     for stage in stages:
         ax = axes[row]
+        if network_info is not None: draw_network_strip(ax, network_info)
         mat = np.clip(stage_z[stage].T, -2.5, 2.5)
         im = ax.imshow(mat, aspect="auto", interpolation="nearest", cmap="gray", vmin=-2.5, vmax=2.5)
         stage_images.append(im)
-        ax.set_ylabel(display_stage_label(stage), fontsize=9, color=stage_color(stage, row - 3))
+        ax.set_ylabel(display_stage_label(stage), fontsize=9, color=stage_color(stage, row - 3),
+                      rotation=90, labelpad=28 if network_info is not None else 8)
         ax.set_yticks([])
         row += 1
 
     for a, b in deltas:
         ax = axes[row]
+        if network_info is not None: draw_network_strip(ax, network_info)
         mat = np.clip((stage_z[b] - stage_z[a]).T, -2.5, 2.5)
         im = ax.imshow(mat, aspect="auto", interpolation="nearest", cmap="RdBu_r", vmin=-2.5, vmax=2.5)
         delta_images.append(im)
         delta_label = f"Delta {display_stage_label(b)}\n({display_stage_label(b)} - {display_stage_label(a)})"
-        ax.set_ylabel("")
-        ax.text(
-            -0.012,
-            0.5,
-            delta_label,
-            transform=ax.transAxes,
-            ha="right",
-            va="center",
-            fontsize=8,
-            clip_on=False,
-        )
+        ax.set_ylabel(delta_label, rotation=90, fontsize=8,
+                      labelpad=28 if network_info is not None else 8,
+                      multialignment="center")
         ax.set_yticks([])
         row += 1
 
     if stage_images:
-        first_stage_row = 3 + len(physio_names)
+        first_stage_row = 3 + int(task_strip is not None) + len(physio_names)
         cbar = fig.colorbar(stage_images[0], ax=list(axes[first_stage_row : first_stage_row + len(stages)]), location="right", pad=0.006, fraction=0.016)
         cbar.set_label("z", fontsize=8)
         cbar.ax.tick_params(labelsize=7)
     if delta_images:
-        cbar = fig.colorbar(delta_images[0], ax=list(axes[3 + len(physio_names) + len(stages) :]), location="right", pad=0.006, fraction=0.016)
+        cbar = fig.colorbar(delta_images[0], ax=list(axes[3 + int(task_strip is not None) + len(physio_names) + len(stages) :]), location="right", pad=0.006, fraction=0.016)
         cbar.set_label("delta z", fontsize=8)
         cbar.ax.tick_params(labelsize=7)
 
@@ -719,6 +726,7 @@ def generate_report(
     max_grayplot_rows: int,
     qcfc_sample_size: int,
     fd_threshold: float,
+    network_labels: Path | None = None,
 ) -> None:
     runs = discover_runs(subject_dir, func_name, start_session)
     if not runs:
@@ -742,6 +750,7 @@ def generate_report(
         raise SystemExit(f"No {func_prefix}_*.dtseries.nii stage files found")
 
     sample_idx, structure_spans = sample_grayordinates(first_img, max_grayplot_rows)
+    network_info = network_order(first_img, sample_idx, network_labels) if network_labels else None
     all_stage_tags = sorted({stage.tag for stages in run_stages.values() for stage in stages}, key=stage_rank)
     run_metrics: list[dict[str, object]] = []
     run_cards: list[str] = []
@@ -752,6 +761,8 @@ def generate_report(
     concat_fd: list[np.ndarray] = []
     concat_motion: list[np.ndarray] = []
     concat_physio: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {"respiration": [], "pulse": []}
+    concat_task_strip = {"segments": [], "notes": []}
+    task_strip_seen = False
     boundaries: list[int] = []
     run_fd_mean: list[float] = []
 
@@ -777,6 +788,8 @@ def generate_report(
         dvars_by_stage: dict[str, np.ndarray] = {}
 
         for stage in stages:
+            if network_info is not None and nb.load(str(stage.path)).header.get_axis(1) != first_img.header.get_axis(1):
+                raise ValueError("Run/stage geometry differs from network labels")
             sampled = load_sampled_dtseries(stage.path, sample_idx)
             z = zscore_columns(sampled)
             stage_z[stage.tag] = z
@@ -817,6 +830,11 @@ def generate_report(
 
         common_stages = [tag for tag in all_stage_tags if tag in stage_z]
         n_tp = next(iter(stage_z.values())).shape[0]
+        task_strip = load_motor_strip(subject_dir, func_name, run, n_tp, tr)
+        if task_strip is not None:
+            task_strip_seen = True
+            concat_task_strip["segments"].extend((a + cursor, b, c) for a,b,c in task_strip["segments"])
+            concat_task_strip["notes"].extend(task_strip["notes"])
         physio = load_physio(subject_dir, func_name, run, n_tp)
         run_png = reportlets / f"subj_desc-motionGrayplot_{run.tag}.png"
         plot_motion_grayplot_panel(
@@ -829,6 +847,8 @@ def generate_report(
             motion,
             dvars_by_stage,
             physio=physio,
+            task_strip=task_strip,
+            network_info=network_info,
             fd_threshold=fd_threshold,
         )
         run_cards.append(
@@ -888,6 +908,8 @@ def generate_report(
             concat_motion_arr,
             concat_dvars_z,
             physio=concat_physio_data,
+            task_strip=concat_task_strip if task_strip_seen else None,
+            network_info=network_info,
             fd_threshold=fd_threshold,
             boundaries=boundaries[:-1],
         )
@@ -949,6 +971,7 @@ th, td {{ border-bottom: 1px solid #d8dee4; padding: 7px 9px; text-align: left; 
 .link-row {{ display: flex; flex-wrap: wrap; gap: 10px; }}
 .link-row a {{ color: #0969da; text-decoration: none; border: 1px solid #d8dee4; border-radius: 4px; padding: 6px 9px; background: #ffffff; }}
 .link-row a:hover {{ text-decoration: underline; }}
+{report_css()}
 </style>
 </head>
 <body>
@@ -991,6 +1014,7 @@ th, td {{ border-bottom: 1px solid #d8dee4; padding: 7px 9px; text-align: left; 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--network-labels", type=Path)
     parser.add_argument("--subject-dir", required=True, type=Path)
     parser.add_argument("--func-name", default="rest")
     parser.add_argument("--func-prefix", default="Rest")
@@ -1002,21 +1026,59 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_network_labels(subject_dir,func_name,out_dir,explicit=None):
+    """Reuse fitted labels so routine QC cannot replace a colored report with structural rows."""
+    chosen=explicit or os.environ.get('PFM_NETWORK_GRAYPLOTS_LABEL')
+    if chosen:
+        path=Path(chosen)
+        if not path.is_file():raise ValueError('Missing network labels: '+str(path))
+        return path
+    roots=[Path(os.environ[k]) for k in ['PFM_OUTDIR','PFM_DATASET_ROOT'] if os.environ.get(k)]
+    for root in roots:
+        if os.environ.get('PFM_STRATEGY','ridgepfm').lower()=='infomap':candidate=root/'Infomap'/(os.environ.get('PFM_INFOMAP_LABEL_OUTFILE','InfomapNetworkLabels')+'_ModeConsensus.dlabel.nii')
+        else:candidate=root/'RidgePFM'/(os.environ.get('PFM_RF_OUTFILE','RidgePFM_VTX')+'.dlabel.nii')
+        if candidate.is_file():return candidate
+    metadata=Path(out_dir)/'network_order.json'
+    if metadata.is_file():
+        record=json.loads(metadata.read_text());candidate=Path(record['label_file'])
+        if candidate.is_file():return candidate
+        raise ValueError('Previously network-colored grayplots require their labels: '+str(candidate))
+    for root in [Path(subject_dir)/'pfm',Path(subject_dir)/'func'/func_name/'PFM']:
+        candidate=root/'RidgePFM'/(os.environ.get('PFM_RF_OUTFILE','RidgePFM_VTX')+'.dlabel.nii')
+        if candidate.is_file():return candidate
+    return None
+
+
 def main() -> int:
     args = parse_args()
     subject_dir = args.subject_dir.resolve()
     qc_dirname = os.environ.get("QC_OUTPUT_DIRNAME", "QC")
     out_dir = (args.out_dir or subject_dir / "func" / args.func_name / qc_dirname / "MotionGrayPlots").resolve()
-    generate_report(
-        subject_dir,
-        args.func_name,
-        args.func_prefix,
-        args.start_session,
-        out_dir,
-        args.max_grayplot_rows,
-        args.qcfc_sample_size,
-        args.fd_threshold,
-    )
+    import fcntl,contextlib
+    out_dir.parent.mkdir(parents=True,exist_ok=True)
+    with contextlib.ExitStack() as stack:
+        if os.environ.get('MEFMRI_GRAYPLOT_LOCK_HELD')!='1':
+            lock=stack.enter_context((out_dir.parent/'.MotionGrayPlots.lock').open('a'))
+            fcntl.flock(lock,fcntl.LOCK_EX)
+        network_labels=resolve_network_labels(subject_dir,args.func_name,out_dir,args.network_labels)
+        generate_report(
+            subject_dir,
+            args.func_name,
+            args.func_prefix,
+            args.start_session,
+            out_dir,
+            args.max_grayplot_rows,
+            args.qcfc_sample_size,
+            args.fd_threshold,
+            network_labels=network_labels,
+        )
+        if network_labels:
+            from mefmri_network_grayplot import network_order, annotate_report
+            first = next(stage for run in discover_runs(subject_dir, args.func_name, args.start_session) for stage in discover_stage_files(run.run_dir, args.func_prefix))
+            image = nb.load(str(first.path)); sampled, _ = sample_grayordinates(image, args.max_grayplot_rows)
+            annotate_report(out_dir, network_order(image, sampled, network_labels))
+        # Direct QC can use different sampling/settings from the PFM publisher.
+        (out_dir / "complete.json").unlink(missing_ok=True)
     return 0
 
 

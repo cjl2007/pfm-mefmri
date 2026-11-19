@@ -55,7 +55,7 @@ For debugging or reruns, `START_FROM_MODULE` and `STOP_AFTER_MODULE` accept:
 
 ```text
 validate | anat_hcp | anat_charm | fieldmaps | coreg | headmotion |
-denoise | mgtr | vol2surf | concat | nsi | pfm | pfm_update | tans
+denoise | mgtr | vol2surf | concat | pfm_prepare | crawling_seed_fc | nsi | pfm
 ```
 
 When a study requests MEDIC but a run uses the automatic TOPUP fallback,
@@ -148,9 +148,14 @@ func/<FUNC_DIRNAME>/QC/Validation/
 func/<FUNC_DIRNAME>/QC/Coreg/functional_coregistration_qc.html
 func/<FUNC_DIRNAME>/QC/Fieldmaps/distortion_correction_qc.html
 func/<FUNC_DIRNAME>/QC/MotionGrayPlots/motion_grayplots_qc.html
-func/<FUNC_DIRNAME>/QC/NSI/
+pfm/QC/NSI/
 func/<FUNC_DIRNAME>/PFM/
 ```
 
 Exact availability depends on enabled modules and the selected denoising/PFM
 strategy.
+
+For supported task GLMs after PFM, enable `TASK_MODEL_ENABLE=1` and select
+`STOP_AFTER_MODULE="pfm"`. See [task modeling](task-modeling.md).
+
+See [independent postprocessing controls](postprocessing.md). TANS and task modeling are enabled independently of core start/stop routing.

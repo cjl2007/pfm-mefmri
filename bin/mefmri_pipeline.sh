@@ -34,6 +34,12 @@ export PFM_MEFMRI_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 set -a
 source "$ConfigFile"
 set +a
+# Core processing and optional consumers have independent controls.
+: "${PIPELINE_RUN_CORE:=1}"
+case "$PIPELINE_RUN_CORE" in 0|1) ;; *) echo "ERROR: PIPELINE_RUN_CORE must be 0 or 1" >&2; exit 2 ;; esac
+if [[ "${PIPELINE_TASK_LOOP_CHILD:-0}" != 1 && "$PIPELINE_RUN_CORE" == 0 ]]; then
+  exec bash "$MEDIR/bin/mefmri_postprocess.sh" "$SubjectDir" "$ConfigFile"
+fi
 PFM_REQUESTED_INPUT_TAG="${PFM_INPUT_TAG:-}"
 PFM_REQUESTED_INPUT_CIFTI="${PFM_INPUT_CIFTI:-}"
 PFM_REQUESTED_CONCAT_DIR="${PFM_CONCAT_DIR:-}"
@@ -54,7 +60,7 @@ if [[ -n "${PIPELINE_TASK_PREFIX_OVERRIDE:-}" ]]; then
   export FUNC_FILE_PREFIX="$PIPELINE_TASK_PREFIX_OVERRIDE"
 fi
 if [[ "${PIPELINE_DEFER_PFM:-0}" == 1 ]]; then
-  export PFM_ENABLE=0 PFM_INFOMAP_UPDATE_ENABLE=0 TANS_ENABLE=0
+  export PFM_ENABLE=0 TANS_ENABLE=0 TASK_MODEL_ENABLE=0
 fi
 
 # Optional config-specified FreeSurfer license path.
@@ -66,8 +72,8 @@ fi
 : "${MEDIR:=$(cd "$SCRIPT_DIR/.." && pwd)}"
 : "${EnvironmentScript:=$MEDIR/HCPpipelines-master/Examples/Scripts/SetUpHCPPipeline.sh}"
 : "${START_SESSION:=1}"
-: "${START_FROM_MODULE:=validate}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update|tans
-: "${STOP_AFTER_MODULE:=}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update|tans
+: "${START_FROM_MODULE:=validate}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|pfm_prepare|crawling_seed_fc|nsi|pfm
+: "${STOP_AFTER_MODULE:=}" # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|pfm_prepare|crawling_seed_fc|nsi|pfm
 : "${PIPELINE_SKIP_ANAT:=0}" # 0|1 (used by FUNC_DIRNAME=All parent loop to avoid rerunning anatomy per task)
 
 # Optional post-config overrides (used internally by the All-tasks driver).
@@ -94,7 +100,6 @@ fi
 : "${FUNC_CONCAT_MODULE:=$MEDIR/modules/mefmri_func_concat.sh}"
 : "${FUNC_NSI_MODULE:=$MEDIR/modules/mefmri_func_nsi.sh}"
 : "${FUNC_PFM_MODULE:=$MEDIR/modules/mefmri_func_pfm.sh}"
-: "${FUNC_PFM_INFOMAP_UPDATE_MODULE:=$MEDIR/modules/mefmri_func_pfm_infomap_update.sh}"
 : "${FUNC_CRAWLING_SEED_FC_MODULE:=$MEDIR/modules/mefmri_func_crawling_seed_fc.sh}"
 : "${FUNC_TANS_MODULE:=$MEDIR/modules/mefmri_func_tans.sh}"
 
@@ -109,8 +114,11 @@ fi
 : "${CONCAT_ENABLE:=1}" # 0|1
 : "${NSI_ENABLE:=1}" # 0|1
 : "${PFM_ENABLE:=1}" # 0|1
-: "${PFM_INFOMAP_UPDATE_ENABLE:=0}" # 0|1
 : "${TANS_ENABLE:=0}" # 0|1
+: "${TASK_MODEL_ENABLE:=0}" # opt-in supported task recipes
+: "${TASK_MODEL_CONFIG_DIR:=$MEDIR/config/task_models}"
+: "${TASK_MODEL_PYTHON:=${PIPELINE_PYTHON:-python3}}"
+: "${FUNC_TASK_MODEL_MODULE:=$MEDIR/modules/mefmri_func_task_model.sh}"
 : "${CRAWLING_SEED_FC_ENABLE:=1}" # 0|1
 : "${RUN_CONFIG_SNAPSHOT:=1}" # 0|1
 : "${QC_OUTPUT_DIRNAME:=QC}"
@@ -333,16 +341,22 @@ stage_index() {
     mgtr) echo 70 ;;
     vol2surf) echo 80 ;;
     concat) echo 90 ;;
+    pfm_prepare) echo 95 ;;
+    crawling_seed_fc) echo 97 ;;
     nsi) echo 100 ;;
     pfm) echo 110 ;;
-    pfm_update|infomap_update) echo 115 ;;
-    tans) echo 120 ;;
     *)
       echo "ERROR: invalid module tag: $1" >&2
       return 1
       ;;
   esac
 }
+
+# Validate routing before any modules, including direct child invocations.
+stage_index "$START_FROM_MODULE" >/dev/null || exit 2
+if [[ -n "$STOP_AFTER_MODULE" ]]; then
+  stage_index "$STOP_AFTER_MODULE" >/dev/null || exit 2
+fi
 
 should_run_stage() {
   local stage="$1"
@@ -481,7 +495,7 @@ run_all_tasks() {
   local item
   for item in "${selection[@]}"; do dataset_args+=(--select "$item"); done
   local dataset_spec
-  if (( stop_idx >= $(stage_index pfm) )) && [[ "${PFM_ENABLE:-0}${TANS_ENABLE:-0}${PFM_INFOMAP_UPDATE_ENABLE:-0}" != 000 ]]; then
+  if [[ "$START_FROM_MODULE" != task_model ]] && (( stop_idx >= $(stage_index pfm_prepare) )) && { [[ "${PFM_ENABLE:-0}${NSI_ENABLE:-1}${CRAWLING_SEED_FC_ENABLE:-1}" != 000 ]] || [[ "$START_FROM_MODULE" == pfm_prepare || "$STOP_AFTER_MODULE" == pfm_prepare ]]; }; then
    dataset_spec="$("${PIPELINE_PYTHON:-python3}" "$MEDIR/lib/mefmri_pfm_dataset.py" select "${dataset_args[@]}")" || exit 2
    export PFM_INPUT_TASK_SPECS_JSON="$dataset_spec"
    source "$MEDIR/lib/pfm_confidence_preflight.sh" "$SubjectDir" "${tasks[0]}" "$START_SESSION"
@@ -557,8 +571,8 @@ run_all_tasks() {
   fi
 
   local functional_stop="$STOP_AFTER_MODULE"
-  if (( stop_idx > $(stage_index nsi) )); then functional_stop=nsi; fi
-  if (( start_idx <= $(stage_index nsi) )); then
+  if (( stop_idx > $(stage_index concat) )); then functional_stop=concat; fi
+  if (( start_idx <= $(stage_index concat) )); then
    for task in "${tasks[@]}"; do
     echo
     echo "[task-loop] starting task=${task}"
@@ -582,11 +596,12 @@ run_all_tasks() {
     echo "[task-loop] complete task=${task}"
    done
   fi
-  if (( stop_idx >= $(stage_index pfm) )) && [[ "$dataset_spec" != "[]" ]]; then
+  export TASK_MODEL_SELECTED_TASKS_JSON="$("${PIPELINE_PYTHON:-python3}" -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${tasks[@]}")"
+  if (( stop_idx >= $(stage_index pfm_prepare) )) && [[ "$dataset_spec" != "[]" ]]; then
     local reference_task reference_prefix downstream_start="$START_FROM_MODULE"
     reference_task="$("${PIPELINE_PYTHON:-python3}" -c 'import json,sys; print(json.loads(sys.argv[1])[0]["task"])' "$dataset_spec")"
     reference_prefix="${task_prefixes[$reference_task]}"
-    if (( start_idx < $(stage_index pfm) )); then downstream_start=pfm; fi
+    if (( start_idx < $(stage_index pfm_prepare) )); then downstream_start=pfm_prepare; fi
     env PIPELINE_TASK_LOOP_CHILD=1 PIPELINE_TASK_OVERRIDE="$reference_task" \
       PIPELINE_TASK_PREFIX_OVERRIDE="$reference_prefix" PIPELINE_SKIP_ANAT=1 \
       PIPELINE_TASK_XFMS_OVERRIDE="${PIPELINE_CONFIG_XFMS_DIRNAME:-$reference_task}" \
@@ -598,7 +613,22 @@ run_all_tasks() {
   exit 0
 }
 
-if [[ "$PIPELINE_TASK_LOOP_CHILD" != "1" ]] && { is_all_task_selection "$FUNC_DIRNAME" || [[ "$(declare -p FUNC_DIRNAME 2>/dev/null)" == 'declare -a'* ]]; }; then
+# Scalar and vector selections share the same subject-level dataset/QC dispatch.
+if [[ "$PIPELINE_TASK_LOOP_CHILD" != "1" ]]; then
+  if ! is_all_task_selection "$FUNC_DIRNAME" && [[ "$(declare -p FUNC_DIRNAME 2>/dev/null)" != 'declare -a'* ]]; then
+    FUNC_DIRNAME=("$FUNC_DIRNAME")
+    FUNC_FILE_PREFIX=("$FUNC_FILE_PREFIX")
+  fi
+  # Only the parent launches optional consumers, once, after successful core work.
+  finish_optional_consumers() {
+    local core_status=$?
+    trap - EXIT
+    if [[ "$core_status" == 0 ]]; then
+      bash "$MEDIR/bin/mefmri_postprocess.sh" "$SubjectDir" "$ConfigFile" || exit $?
+    fi
+    exit "$core_status"
+  }
+  trap finish_optional_consumers EXIT
   run_all_tasks
 fi
 if [[ "${FUNC_FILE_PREFIX,,}" == "auto" ]]; then
@@ -624,11 +654,6 @@ case "${TANS_ENABLE}" in
   0|1) ;;
   *) echo "ERROR: TANS_ENABLE must be 0 or 1" >&2; exit 2 ;;
 esac
-if [[ "${TANS_ENABLE}" != "1" ]] && \
-   [[ "$START_FROM_MODULE" == "tans" || "$STOP_AFTER_MODULE" == "tans" ]]; then
-  echo "ERROR: selecting the tans stage requires TANS_ENABLE=1" >&2
-  exit 2
-fi
 
 PIPELINE_REQUESTED_DISTORTION_CORRECTION_MODE="$DISTORTION_CORRECTION_MODE"
 resolve_distortion_correction_mode
@@ -948,6 +973,15 @@ echo "Reclass defaults: mode=${MEICA_CLASSIFIER_MODE:-unset}, nsi_kill=${MEICA_N
 echo "Module output mode: quiet=${PIPELINE_QUIET_MODULE_OUTPUT}"
 
 FUNC_QC_DIR="$SubjectDir/func/$FUNC_DIRNAME/$QC_OUTPUT_DIRNAME"
+if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
+  # Resolve historical mapping-only resumes before creating a new QC directory.
+  if [[ "$START_FROM_MODULE" == tans ]]; then
+    if [[ -z "${PFM_OUTDIR:-}" && ! -f "$SubjectDir/pfm/dataset.json" && ! -d "$SubjectDir/pfm/RidgePFM" && ! -d "$SubjectDir/pfm/Infomap" && -d "$SubjectDir/func/$FUNC_DIRNAME/PFM" ]]; then
+      export PFM_OUTDIR="$SubjectDir/func/$FUNC_DIRNAME/PFM"
+    fi
+  fi
+  FUNC_QC_DIR="${PFM_OUTDIR:-$SubjectDir/pfm}/QC"
+fi
 FUNC_QA_DIR="$FUNC_QC_DIR"
 MODULE_LOG_DIR="$FUNC_QC_DIR/ModuleLogs"
 mkdir -p "$MODULE_LOG_DIR"
@@ -1104,47 +1138,13 @@ if [[ "${RUN_CONFIG_SNAPSHOT}" == "1" ]]; then
     echo "concat_enable=${CONCAT_ENABLE}"
     echo "nsi_enable=${NSI_ENABLE}"
     echo "pfm_enable=${PFM_ENABLE}"
-    echo "pfm_infomap_update_enable=${PFM_INFOMAP_UPDATE_ENABLE}"
     echo "crawling_seed_fc_enable=${CRAWLING_SEED_FC_ENABLE}"
   } > "$RUN_META_FILE"
   echo "Run metadata snapshot: $RUN_META_FILE"
 fi
 
 # Resume runs skip validate, but must still reject impossible confidence settings.
-if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
-  export PFM_FD_THRESHOLD="${PFM_FD_THRESHOLD:-${CONCAT_FD_THRESHOLD:-0.3}}"
-  PFM_DATASET_ROOT="${PFM_OUTDIR:-$SubjectDir/pfm}"
-  export PFM_DATASET_ROOT PFM_CONCAT_DIR="$PFM_DATASET_ROOT/${PFM_CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}"
-  if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then
-    export PFM_CONCAT_DIR="${PFM_REQUESTED_CONCAT_DIR:-$(dirname "$PFM_REQUESTED_INPUT_CIFTI")}"
-  fi
-  if [[ "$START_FROM_MODULE" == tans || "$START_FROM_MODULE" == pfm_update ]]; then
-    if [[ -z "${PFM_OUTDIR:-}" && ! -d "$PFM_DATASET_ROOT" && -d "$SubjectDir/func/$FUNC_DIRNAME/PFM" ]]; then
-      export PFM_DATASET_ROOT="$SubjectDir/func/$FUNC_DIRNAME/PFM" PFM_OUTDIR="$SubjectDir/func/$FUNC_DIRNAME/PFM"
-      export PFM_CONCAT_DIR="$SubjectDir/func/$FUNC_DIRNAME/${PFM_CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}"
-    fi
-  fi
-  export PFM_INPUT_TASK_SPECS_JSON="$PFM_DATASET_TASKS_JSON"
-  export PFM_REQUESTED_INPUT_TAG
-  export PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-$FUNC_XFMS_DIRNAME}"
-  export PFM_CONFIG_SNAPSHOT="$(cat "$ConfigFile")"
-  if [[ "$START_FROM_MODULE" != tans && "$START_FROM_MODULE" != pfm_update ]]; then
-    dataset_prepare_args=()
-    if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then dataset_prepare_args+=(--external-cifti "$PFM_REQUESTED_INPUT_CIFTI"); fi
-    "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" prepare \
-      --subject-dir "$SubjectDir" --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON" \
-      --start-session "$START_SESSION" --rebuild "${PIPELINE_PFM_REBUILD_INPUTS:-0}" "${dataset_prepare_args[@]}"
-  else
-    "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" verify-selection --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON"
-  fi
-  if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then
-    export PFM_INPUT_CIFTI="$PFM_REQUESTED_INPUT_CIFTI"
-  elif [[ -f "$PFM_CONCAT_DIR/PFMPrepSummary.json" ]]; then
-    PFM_INPUT_CIFTI="$("$PIPELINE_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["out_censored"])' "$PFM_CONCAT_DIR/PFMPrepSummary.json")"
-    export PFM_INPUT_CIFTI
-  fi
-  export PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-$FUNC_XFMS_DIRNAME}"
-fi
+
 if should_run_stage "pfm"; then
   source "$MEDIR/lib/pfm_confidence_preflight.sh" "$SubjectDir" "$FUNC_DIRNAME" "$START_SESSION"
 fi
@@ -1404,14 +1404,6 @@ if [[ "${CONCAT_ENABLE}" == "1" ]]; then
     [ -f "$FUNC_CONCAT_MODULE" ] || { echo "ERROR: missing module: $FUNC_CONCAT_MODULE"; exit 2; }
     run_module "concat" bash "$FUNC_CONCAT_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
     alignment_downstream stamp concat
-    if [[ "${CRAWLING_SEED_FC_ENABLE}" == "1" ]]; then
-      print_section "Generating crawling seed FC movie"
-      [ -f "$FUNC_CRAWLING_SEED_FC_MODULE" ] || { echo "ERROR: missing module: $FUNC_CRAWLING_SEED_FC_MODULE"; exit 2; }
-      MODULE_DISPLAY_TAG="concat:crawling_seed_fc" MODULE_LOG_TAG="concat_crawling_seed_fc" \
-        run_module "crawling_seed_fc" bash "$FUNC_CRAWLING_SEED_FC_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
-    else
-      echo "Skipping crawling seed FC movie (CRAWLING_SEED_FC_ENABLE=${CRAWLING_SEED_FC_ENABLE})"
-    fi
     if [[ "$STOP_AFTER_MODULE" == "concat" ]]; then
       echo "Stopping after concat (STOP_AFTER_MODULE=concat)"
       exit 0
@@ -1422,11 +1414,66 @@ if [[ "${CONCAT_ENABLE}" == "1" ]]; then
   fi
 fi
 
-if [[ "${NSI_ENABLE}" == "1" ]]; then
+if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
+  export PFM_FD_THRESHOLD="${PFM_FD_THRESHOLD:-${CONCAT_FD_THRESHOLD:-0.3}}"
+  PFM_DATASET_ROOT="${PFM_OUTDIR:-$SubjectDir/pfm}"
+  export PFM_DATASET_ROOT PFM_CONCAT_DIR="$PFM_DATASET_ROOT/${PFM_CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}"
+  if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then
+    export PFM_CONCAT_DIR="${PFM_REQUESTED_CONCAT_DIR:-$(dirname "$PFM_REQUESTED_INPUT_CIFTI")}"
+  fi
+  if [[ "$START_FROM_MODULE" == tans ]]; then
+    if [[ -z "${PFM_OUTDIR:-}" && ! -d "$PFM_DATASET_ROOT" && -d "$SubjectDir/func/$FUNC_DIRNAME/PFM" ]]; then
+      export PFM_DATASET_ROOT="$SubjectDir/func/$FUNC_DIRNAME/PFM" PFM_OUTDIR="$SubjectDir/func/$FUNC_DIRNAME/PFM"
+      export PFM_CONCAT_DIR="$SubjectDir/func/$FUNC_DIRNAME/${PFM_CONCAT_OUT_SUBDIR:-ConcatenatedCiftis}"
+    fi
+  fi
+  export PFM_INPUT_TASK_SPECS_JSON="$PFM_DATASET_TASKS_JSON"
+  export PFM_REQUESTED_INPUT_TAG
+  export PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-$FUNC_XFMS_DIRNAME}"
+  export PFM_CONFIG_SNAPSHOT="$(cat "$ConfigFile")"
+  if [[ "$START_FROM_MODULE" != tans ]]; then
+    dataset_prepare_args=()
+    if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then dataset_prepare_args+=(--external-cifti "$PFM_REQUESTED_INPUT_CIFTI"); fi
+    if should_run_stage pfm_prepare; then
+      print_section "Preparing selected PFM dataset"
+      run_module "pfm_prepare" "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" prepare \
+        --subject-dir "$SubjectDir" --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON" \
+        --start-session "$START_SESSION" --rebuild "${PIPELINE_PFM_REBUILD_INPUTS:-0}" "${dataset_prepare_args[@]}"
+    else
+      "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" prepare \
+        --subject-dir "$SubjectDir" --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON" \
+        --start-session "$START_SESSION" --rebuild 0 "${dataset_prepare_args[@]}"
+    fi
+  else
+    "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" verify-selection --root "$PFM_DATASET_ROOT" --spec "$PFM_DATASET_TASKS_JSON"
+  fi
+  if [[ -n "$PFM_REQUESTED_INPUT_CIFTI" ]]; then
+    export PFM_INPUT_CIFTI="$PFM_REQUESTED_INPUT_CIFTI"
+  elif [[ -f "$PFM_CONCAT_DIR/PFMPrepSummary.json" ]]; then
+    PFM_INPUT_CIFTI="$("$PIPELINE_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["out_censored"])' "$PFM_CONCAT_DIR/PFMPrepSummary.json")"
+    export PFM_INPUT_CIFTI
+  fi
+  export PFM_FUNC_XFMS_DIRNAME="${PFM_FUNC_XFMS_DIRNAME:-$FUNC_XFMS_DIRNAME}"
+fi
+if [[ "$STOP_AFTER_MODULE" == pfm_prepare ]]; then
+  echo "Stopping after pfm_prepare (STOP_AFTER_MODULE=pfm_prepare)"
+  exit 0
+fi
+
+if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 && "$CRAWLING_SEED_FC_ENABLE" == 1 ]] && should_run_stage crawling_seed_fc; then
+  print_section "Generating crawling seed FC for selected PFM dataset"
+  run_module "crawling_seed_fc" "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_qc.py" crawling_seed_fc "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+fi
+if [[ "$STOP_AFTER_MODULE" == crawling_seed_fc ]]; then
+  echo "Stopping after crawling_seed_fc (STOP_AFTER_MODULE=crawling_seed_fc)"
+  exit 0
+fi
+
+if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 && "${NSI_ENABLE}" == "1" ]]; then
   if should_run_stage "nsi"; then
     print_section "Running NSI module"
     [ -f "$FUNC_NSI_MODULE" ] || { echo "ERROR: missing module: $FUNC_NSI_MODULE"; exit 2; }
-    run_module "nsi" bash "$FUNC_NSI_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
+    run_module "nsi" "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_qc.py" nsi "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
     if [[ "$STOP_AFTER_MODULE" == "nsi" ]]; then
       echo "Stopping after nsi (STOP_AFTER_MODULE=nsi)"
       exit 0
@@ -1434,6 +1481,12 @@ if [[ "${NSI_ENABLE}" == "1" ]]; then
   else
     echo "Skipping nsi (START_FROM_MODULE=${START_FROM_MODULE})"
   fi
+fi
+
+# Honor the selected QC boundary even when NSI is disabled.
+if [[ "$STOP_AFTER_MODULE" == nsi ]]; then
+  echo "Stopping after nsi (STOP_AFTER_MODULE=nsi)"
+  exit 0
 fi
 
 if [[ "${PFM_ENABLE}" == "1" ]]; then
@@ -1444,6 +1497,9 @@ if [[ "${PFM_ENABLE}" == "1" ]]; then
     if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
       "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" finish --root "$PFM_DATASET_ROOT"
     fi
+    if [[ "${PFM_NETWORK_GRAYPLOTS_ENABLE:-1}" == 1 && "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
+      run_module "qc_network_grayplots" "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_grayplots.py" "$MEDIR" "$SubjectDir" "$START_SESSION"
+    fi
     if [[ "$STOP_AFTER_MODULE" == "pfm" ]]; then
       echo "Stopping after pfm (STOP_AFTER_MODULE=pfm)"
       exit 0
@@ -1453,33 +1509,4 @@ if [[ "${PFM_ENABLE}" == "1" ]]; then
   fi
 fi
 
-if [[ "${PFM_INFOMAP_UPDATE_ENABLE}" == "1" ]]; then
-  if should_run_stage "pfm_update"; then
-    print_section "Applying Infomap manual updates"
-    [ -f "$FUNC_PFM_INFOMAP_UPDATE_MODULE" ] || { echo "ERROR: missing module: $FUNC_PFM_INFOMAP_UPDATE_MODULE"; exit 2; }
-    run_module "pfm_update" bash "$FUNC_PFM_INFOMAP_UPDATE_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
-    if [[ "${PIPELINE_PFM_DATASET_CHILD:-0}" == 1 ]]; then
-      "$PIPELINE_PYTHON" "$MEDIR/lib/mefmri_pfm_dataset.py" finish --root "$PFM_DATASET_ROOT"
-    fi
-    if [[ "$STOP_AFTER_MODULE" == "pfm_update" || "$STOP_AFTER_MODULE" == "infomap_update" ]]; then
-      echo "Stopping after pfm_update (STOP_AFTER_MODULE=${STOP_AFTER_MODULE})"
-      exit 0
-    fi
-  else
-    echo "Skipping Infomap manual update (START_FROM_MODULE=${START_FROM_MODULE})"
-  fi
-fi
 
-if [[ "${TANS_ENABLE}" == "1" ]]; then
-  if should_run_stage "tans"; then
-    print_section "Running TANS module"
-    [ -f "$FUNC_TANS_MODULE" ] || { echo "ERROR: missing module: $FUNC_TANS_MODULE"; exit 2; }
-    run_module "tans" bash "$FUNC_TANS_MODULE" "$Subject" "$StudyFolder" "$MEDIR" "$START_SESSION" "$FUNC_DIRNAME" "$FUNC_FILE_PREFIX"
-    if [[ "$STOP_AFTER_MODULE" == "tans" ]]; then
-      echo "Stopping after tans (STOP_AFTER_MODULE=tans)"
-      exit 0
-    fi
-  else
-    echo "Skipping TANS (START_FROM_MODULE=${START_FROM_MODULE})"
-  fi
-fi

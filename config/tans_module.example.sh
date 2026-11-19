@@ -3,10 +3,10 @@
 # Edit all installation/study paths. See docs/tans-integration.md here and the
 # full configuration reference in the separate pfm-tans repository.
 
-TANS_ENABLE=1
-TANS_CODE_ROOT="/path/to/pfm-tans/pipeline"
-TANS_CONFIG_FILE="/path/to/MyStudy/config/tans.yaml"
-TANS_PYTHON="/path/to/SimNIBS-4.5/simnibs_env/bin/python"
+TANS_ENABLE=0 # Set to 1 after filling in the required paths and hardware settings.
+TANS_CODE_ROOT="" # Directory containing the installed pfm-tans run_pipeline.py.
+TANS_CONFIG_FILE="" # Your study-owned TANS YAML configuration file.
+TANS_PYTHON="" # Python executable with SimNIBS; blank uses active python3.
 TANS_OUTPUT_DIRNAME="tans"  # One folder name under SubjectDir; no slash.
 TANS_PFM_DIR=""            # Default: <SubjectDir>/pfm/RidgePFM; legacy locations remain readable.
 TANS_WORKERS=6
@@ -18,8 +18,8 @@ TANS_INCLUDE_SM_HAND_CALIBRATION=1
 TANS_ROBUSTNESS_ENABLE=1    # 0 selects nominal fine winner; robustness not evaluated.
 
 # Example hardware: verify against your physical setup, including sibling STL.
-TANS_SM_HAND_COIL_MODEL="/path/to/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_C-B60.ccd"
-TANS_TREATMENT_COIL_MODEL="/path/to/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd"
+TANS_SM_HAND_COIL_MODEL="" # Full path to your SM-Hand calibration coil .ccd file.
+TANS_TREATMENT_COIL_MODEL="" # Full path to your treatment coil .ccd file.
 TANS_CALIBRATION_REGISTRY=""  # Default: bundled registry.
 TANS_SM_HAND_DIDT_CALIBRATION="magventure_x100_c-b60_biphasic_normal"
 TANS_TREATMENT_DIDT_CALIBRATION="magventure_x100_cool-b65_biphasic_normal"
@@ -36,6 +36,6 @@ TANS_STOP_AFTER="reports"
 TANS_RESUME=1
 
 # Set these in the COMPLETE pfm-mefmri config (not a TANS YAML):
-# STOP_AFTER_MODULE="tans"
-# For existing, complete anatomy/PFM only: START_FROM_MODULE="tans"
-# For the full upstream chain: retain the appropriate upstream start stage.
+# PIPELINE_RUN_CORE=0 runs enabled consumers on completed outputs.
+# PIPELINE_RUN_CORE=1 runs them after successful core processing.
+# START_FROM_MODULE/STOP_AFTER_MODULE select core stages through pfm.

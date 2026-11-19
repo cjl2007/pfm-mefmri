@@ -82,3 +82,7 @@ Also check tedana, warpkit, or AROMA within their own configured environments.
 Then run [one subject through validation](configuration.md#6-validate-one-subject-then-process)
 before starting the full pipeline. No package installer in this guide launches
 participant processing.
+
+## RidgePFM CV reports
+
+CV uses NumPy, SciPy, and NiBabel. Workbench and Pillow are required for flat/inflated report captures when `PFM_RF_CV_RENDER=1`. Pillow builds without WebP support use PNG. An available `g++` compiler with OpenMP accelerates local FC calculations; a Python fallback is provided.

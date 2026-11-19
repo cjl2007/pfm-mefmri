@@ -224,10 +224,8 @@ Infomap uses the Python engine in `lib/pfm_infomap.py`. If `infomap` is not on
 `PFM_INFOMAP_DRY_RUN=1` validates argument wiring without running the heavy
 community-detection computation.
 
-Manual Infomap edits are applied with the separate `pfm_update` stage. Enable
-`PFM_INFOMAP_UPDATE_ENABLE=1` and run from `START_FROM_MODULE=pfm_update`; the
-module scans the per-density manual correction tables, applies edits without
-rerunning Infomap, and writes adjusted density and consensus labels.
+Manual Infomap correction tables are retained for review. Applying those edits
+is outside the main pipeline and can be handled by a separate script.
 
 With areal parcellation enabled, the final areal output is named from the
 network-label prefix, for example `InfomapNetworkLabels+ArealParcellation.dlabel.nii`

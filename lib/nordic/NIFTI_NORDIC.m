@@ -147,7 +147,9 @@ end
 
 if isfield(ARG,'use_generic_NII_read') % save out a map of a relative gfactor
     if ARG.use_generic_NII_read==1
-        path(path,'/home/range6-raid1/moeller/matlab/ADD/NIFTI/');
+        if exist('load_nii', 'file') ~= 2 || exist('save_nii', 'file') ~= 2
+            error('Generic NIfTI I/O requires load_nii and save_nii on the MATLAB path.');
+        end
     end
 else
     ARG.use_generic_NII_read=0;

@@ -25,6 +25,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from mefmri_figure_style import configure_matplotlib,figure_font_path,report_css
+configure_matplotlib()
 import nibabel as nb
 import numpy as np
 from PIL import Image
@@ -414,7 +416,7 @@ def plot_rows(
     )
     if len(rows) == 1:
         axs = np.asarray([axs])
-    fig.suptitle(title, fontsize=14, fontweight="bold")
+    fig.suptitle(title, fontsize=14, fontweight="normal")
 
     for row_idx, (label, data, cmap, symmetric) in enumerate(rows):
         vmin, vmax = robust_limits(data, symmetric=symmetric)
@@ -448,7 +450,7 @@ def draw_three_slice_png(
     if slices is None:
         slices = center_slices(data, contour)
     fig, axs = plt.subplots(1, 3, figsize=figsize, facecolor="white", constrained_layout=True)
-    fig.suptitle(title, fontsize=14, fontweight="bold")
+    fig.suptitle(title, fontsize=14, fontweight="normal")
     vmin, vmax = robust_limits(data)
     for axis, ax in enumerate(axs):
         ax.imshow(slice2d(data, axis, slices[axis]), cmap="gray", vmin=vmin, vmax=vmax, origin="lower")
@@ -466,7 +468,7 @@ def draw_three_slice_png(
             label,
             color="white",
             fontsize=12,
-            fontweight="bold",
+            fontweight="normal",
             bbox={"facecolor": "black", "edgecolor": "none", "alpha": 0.72, "pad": 5},
         )
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -484,7 +486,7 @@ def image_from_three_slice(
     import io
 
     fig, axs = plt.subplots(1, 3, figsize=(10.5, 3.4), facecolor="white", constrained_layout=True)
-    fig.suptitle(title, fontsize=14, fontweight="bold")
+    fig.suptitle(title, fontsize=14, fontweight="normal")
     vmin, vmax = robust_limits(data)
     for axis, ax in enumerate(axs):
         ax.imshow(slice2d(data, axis, slices[axis]), cmap="gray", vmin=vmin, vmax=vmax, origin="lower")
@@ -501,7 +503,7 @@ def image_from_three_slice(
         label,
         color="white",
         fontsize=12,
-        fontweight="bold",
+        fontweight="normal",
         bbox={"facecolor": "black", "edgecolor": "none", "alpha": 0.72, "pad": 5},
     )
     bio = io.BytesIO()
@@ -716,7 +718,7 @@ def write_longitudinal_mosaic(runs: list[RunInfo], reportlets: Path) -> dict[str
         ax.set_yticks([])
     for ax in axs[len(images) :]:
         ax.axis("off")
-    fig.suptitle("Longitudinal unwarped SBRef consistency", fontsize=14, fontweight="bold")
+    fig.suptitle("Longitudinal unwarped SBRef consistency", fontsize=14, fontweight="normal")
     out = reportlets / "subj_desc-longitudinalUnwarped_mosaic.png"
     fig.tight_layout()
     fig.savefig(out, dpi=150)
@@ -847,7 +849,10 @@ def write_coreg_html(
     if coreg_time:
         gif_html = (
             "<section><h2>Brain-Focused Within-Subject Alignment</h2>"
-            f"<img src='reportlets/{html.escape(str(coreg_time['fade_gif']))}' alt='Runwise unwarped SBRef BBR fade animation'>"
+            f"<p><a href='reportlets/{html.escape(str(coreg_time['fade_gif']))}' target='_blank' rel='noopener'>Open full-resolution animation</a> · "
+            "Fixed anatomical contours: white matter (cyan), outer cortical gray matter (amber), ventricular CSF (lavender), when segmentations are available. "
+            "Display sampling does not change source resolution.</p>"
+            f"<img src='reportlets/{html.escape(str(coreg_time['fade_gif']))}' alt='Runwise functional references with fixed anatomical tissue contours'>"
             "</section>"
         )
         matrix_html = (
@@ -878,12 +883,13 @@ h1, h2 {{ margin: 0 0 12px; }}
 img {{ max-width: 100%; height: auto; display: block; margin: 10px 0; border: 1px solid #d8dee4; }}
 a.button {{ display: inline-block; padding: 8px 11px; border: 1px solid #8c959f; border-radius: 5px; color: #1f2328; text-decoration: none; background: #fff; }}
 section img + img {{ margin-top: 16px; }}
+{report_css()}
 </style>
 </head>
 <body>
 <header>
 <h1>{html.escape(subject_dir.name)} {html.escape(func_name)} Coreg QC</h1>
-<div>Experimental fMRIPrep-style coregistration visuals.</div>
+
 <div>Alignment: {html.escape(os.environ.get('COREG_ALIGNMENT_STRATEGY', 'independent'))}; reference version: {html.escape(os.environ.get('COREG_REFERENCE_VERSION', '') or 'not applicable')}.</div>
 </header>
 <main>
@@ -950,6 +956,7 @@ th, td {{ border-bottom: 1px solid #d8dee4; padding: 8px 10px; text-align: left;
 .run img:first-of-type {{ width: 100%; }}
 code {{ background: #eef1f4; padding: 1px 4px; border-radius: 4px; }}
 a.button {{ display: inline-block; padding: 8px 11px; border: 1px solid #8c959f; border-radius: 5px; color: #1f2328; text-decoration: none; background: #fff; }}
+{report_css()}
 </style>
 </head>
 <body>

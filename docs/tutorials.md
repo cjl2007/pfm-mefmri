@@ -36,7 +36,7 @@ Review in this order:
 2. `func/rest/QC/Coreg/functional_coregistration_qc.html`
 3. `func/rest/QC/Fieldmaps/distortion_correction_qc.html`
 4. `func/rest/QC/MotionGrayPlots/motion_grayplots_qc.html`
-5. `func/rest/QC/NSI/`
+5. `pfm/QC/NSI/`
 6. `func/rest/PFM/RidgePFM/RidgePFM_VTX.dlabel.nii`
 
 Figure slots:
@@ -95,11 +95,11 @@ bash bin/mefmri_pipeline.sh /path/to/study/ME06
 Inspect:
 
 ```text
-func/rest/QC/NSI/*_run_config.txt
-func/rest/QC/NSI/*_nsi.npz
-func/rest/QC/NSI/*_hist_nsi.png
-func/rest/QC/NSI/*_hist_nsi_by_network.png
-func/rest/QC/NSI/*_hist_nsi_by_structure.png
+pfm/QC/NSI/*_run_config.txt
+pfm/QC/NSI/*_nsi.npz
+pfm/QC/NSI/*_hist_nsi.png
+pfm/QC/NSI/*_hist_nsi_by_network.png
+pfm/QC/NSI/*_hist_nsi_by_structure.png
 ```
 
 Interpretation:
@@ -137,8 +137,8 @@ STOP_AFTER_MODULE="nsi"
 Inspect:
 
 ```text
-func/rest/QC/NSI/*_reliability.json
-func/rest/QC/NSI/*_run_config.txt
+pfm/QC/NSI/*_reliability.json
+pfm/QC/NSI/*_run_config.txt
 ```
 
 Use this when deciding whether a participant needs more scan time before PFM.
@@ -213,26 +213,8 @@ Edit the per-density manual correction tables:
 GraphDensity_<value>/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.csv
 ```
 
-Then rerun only the update stage:
-
-```bash
-PFM_INFOMAP_UPDATE_ENABLE=1
-START_FROM_MODULE="pfm_update"
-STOP_AFTER_MODULE="pfm_update"
-```
-
-Run:
-
-```bash
-bash bin/mefmri_pipeline.sh /path/to/study/ME06
-```
-
-Inspect the adjusted consensus outputs:
-
-```text
-func/rest/PFM/Infomap/InfomapNetworkLabels_ManualAdjusted_ModeConsensus.dlabel.nii
-func/rest/PFM/Infomap/InfomapNetworkLabels_ManualAdjusted_ProbabilityConsensus.dscalar.nii
-```
+Applying manual corrections is outside the main pipeline. Retain the review
+tables for a future standalone update script.
 
 Figure slots:
 
@@ -264,7 +246,7 @@ bash bin/mefmri_pipeline.sh /path/to/study/ME06
 Inspect:
 
 ```text
-func/rest/QC/CrawlingSeedFC/sub-ME06.mp4
+pfm/QC/CrawlingSeedFC/sub-ME06.mp4
 ```
 
 This module can be slow and memory-intensive because it creates a dense

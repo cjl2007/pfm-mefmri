@@ -1,0 +1,13 @@
+{
+  "file": "RidgePFM_CV_Rotations.dtseries.nii",
+  "rotations": 100,
+  "source": "Rotated_inds.dtseries.nii",
+  "source_rows_one_based": [
+    1,
+    100
+  ],
+  "source_sha256": "8c8e5126a06b20504c653504e9b44fedf21a98ed3c8f5524df763b72f1a8fa2a",
+  "sha256": "b845c53f26b289ff6f720c765d332207e965e98d327a789deca5a8fd6d200325",
+  "indices_identical": true,
+  "cortical_axis_identical": true
+}

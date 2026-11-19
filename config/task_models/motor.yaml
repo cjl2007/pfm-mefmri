@@ -1,0 +1,39 @@
+schema_version: 1
+recipe_id: motor_digits_v1
+task: motor
+file_prefix: Motor
+adapter: block_events
+# Reusable across participants; acquisition-specific alignment lives beside each events CSV.
+events_pattern: Motor_S{session}_R{run}_events.csv
+timing_pattern: Motor_S{session}_R{run}_taskmodel.json
+input_tags: [OCME, OCME+MEICA]
+conditions: [thumb, index]
+phase: experimental
+baseline: implicit_rest
+hand: right
+interpretation: Thumb flexion versus index abduction; effects include differences in movement type.
+hrf: spm + derivative
+high_pass_seconds: 128
+noise_model: ar1
+motion_expansion: 24
+fd_threshold_mm: 0.3
+rotation_radius_mm: 50
+tissue_means: [white_matter, csf]
+tissue_erosion_voxels: 1
+minimum_tissue_voxels: 5
+minimum_residual_df: 30
+additional_smoothing_mm: 0
+global_signal: false
+contrasts:
+  thumb_minus_index: {thumb: 1, index: -1}
+  index_minus_thumb: {thumb: -1, index: 1}
+  thumb_vs_rest: {thumb: 1, index: 0}
+  index_vs_rest: {thumb: 0, index: 1}
+  movement_vs_rest: {thumb: 0.5, index: 0.5}
+render:
+  enabled: true
+  z_limit: 3
+  borders: true
+  border_color: WHITE
+  border_width: 2.5
+  views: bilateral_inflated_and_flat

@@ -1,5 +1,5 @@
 # PFM paths use {pfm_dir}: subject-level pfm/RidgePFM by default, with legacy fallback.
-# Copy to a study-owned location and edit every /opt path for your installation.
+# Copy to a study-owned location and fill in the blank installation/coil paths.
 # Full guidance: pfm-tans/docs/CONFIGURATION.md and docs/tans-integration.md here.
 # These hardware choices are an example, not universal study defaults.
 # Select treatment with --target-network / TANS_TARGET_NETWORK, not a new YAML target.
@@ -27,8 +27,8 @@ subject_adapter:
   subject_dir: "{subject_dir}"
   native_t1w: "{subject_dir}/anat/T1w/T1w.nii.gz"
   native_t2w: "{subject_dir}/anat/T2w/T2w.nii.gz"
-  charm_binary: /opt/SimNIBS-4.5/simnibs_env/bin/charm
-  workbench: /opt/workbench/bin_linux64/wb_command
+  charm_binary: "" # Full path to the CHARM executable in your SimNIBS installation.
+  workbench: "" # Full path to wb_command, or its executable name if on PATH.
 
 components:
   quantiles: [0.10, 0.25, 0.50, 0.75, 0.90]
@@ -44,10 +44,10 @@ search:
   orientation_step_degrees: 15
 
 simulation:
-  simnibs_python: /opt/SimNIBS-4.5/simnibs_env/bin/python
-  sm_hand_calibration_coil: /opt/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_C-B60.ccd
-  treatment_coil: /opt/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd
-  coil: /opt/SimNIBS-4.5/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd
+  simnibs_python: "" # Full path to the Python executable with SimNIBS installed.
+  sm_hand_calibration_coil: "" # Full path to your SM-Hand coil .ccd file; keep its companion files.
+  treatment_coil: "" # Full path to your treatment coil .ccd file; keep its companion files.
+  coil: "" # Same treatment coil path; retained for the companion workflow schema.
   coil_distance_mm: 1
   didt_aperus: 1000000  # Historical key: SimNIBS value is A/s, i.e. 1 A/us reference.
   hotspot_percentiles: [99.9, 99.8, 99.7, 99.6, 99.5, 99.4, 99.3, 99.2, 99.1, 99.0]

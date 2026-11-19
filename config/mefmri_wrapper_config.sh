@@ -43,7 +43,7 @@ PIPELINE_PYTHON="python3"
 # =============================================================================
 # Resume / routing. Leave START_FROM_MODULE at validate for a fresh run.
 START_SESSION=1
-START_FROM_MODULE="validate"   # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|nsi|pfm|pfm_update|tans
+START_FROM_MODULE="validate"   # validate|anat_hcp|anat_charm|fieldmaps|coreg|headmotion|denoise|mgtr|vol2surf|concat|pfm_prepare|crawling_seed_fc|nsi|pfm
 STOP_AFTER_MODULE=""           # "" to run full chain
 
 # Functional naming and reference space
@@ -76,7 +76,7 @@ COREG_REFERENCE_VERSION=""             # saved immutable version for frozen/resu
 COREG_ALIGNMENT_BUNDLE=""              # saved completed bundle for headmotion/later resume
 COREG_REFERENCE_ROOT=""                # blank: original xfm group's SubjectRefinement directory
 COREG_REFERENCE_MEMBERS=""             # optional complete membership file; not a run filter
-# See docs/subject_refined_coregistration.md before switching strategies.
+# See docs/longitudinal-alignment.md before switching strategies.
 COREG_SDC_QC_STRICT=0            # 1 makes Coreg/Fieldmap QC report failure abort the pipeline
 MOTION_GRAYPLOTS_QC_ENABLE=1     # 1 writes MotionGrayPlots QC after denoise/MGTR outputs exist
 MOTION_GRAYPLOTS_QC_STRICT=0     # 1 makes MotionGrayPlots report failure abort the pipeline
@@ -206,15 +206,32 @@ CONCAT_OUT_SUBDIR="ConcatenatedCiftis"
 CONCAT_CENSOR_BY_FD=1
 CONCAT_FD_THRESHOLD=0.3
 
-# Optional concat-stage QC movie. This runs immediately after concat when
-# CRAWLING_SEED_FC_ENABLE=1; it is not a START/STOP routing module.
+# -----------------------------------------------------------------------------
+# 3f.1) Selected PFM dataset (pfm_prepare)
+# -----------------------------------------------------------------------------
+PFM_INPUT_TASKS=("rest") # Or ("rest" "Motor" "WorkingMemory") for configured tasks.
+PFM_PYTHON="$PIPELINE_PYTHON"
+PFM_INPUT_CIFTI=""               # Optional explicit CIFTI override; otherwise use PFM_INPUT_TASKS
+PFM_INPUT_TAG=""                 # empty => use each selected task's concatenation metadata
+PFM_CONCAT_OUT_SUBDIR="$CONCAT_OUT_SUBDIR"
+PFM_FD_THRESHOLD="$CONCAT_FD_THRESHOLD"
+PFM_OUTDIR=""                    # empty => <SubjectDir>/pfm
+PFM_CONCAT_DIR=""               # Optional FD/ScanIdx/ScanInfo directory for explicit CIFTI overrides
+# QC works with PFM_ENABLE=0; PFM_INPUT_TASKS still selects its input.
+PFM_QC_FORCE=0  # 1: recompute dataset NSI/movie even when receipts match
+
+# -----------------------------------------------------------------------------
+# 3f.2) Crawling-seed FC for selected PFM dataset
+# -----------------------------------------------------------------------------
+# Selected-dataset QC: pfm_prepare -> crawling_seed_fc -> nsi -> pfm.
+# This movie uses the same selected/censored PFM input, once per dataset.
 # It is resource-heavy: it creates a dense correlation CIFTI that can be tens of
 # GB, then renders frames with Workbench/wb_surfer2. Expect tens of minutes to
 # 1+ hour per subject; set CRAWLING_SEED_FC_ENABLE=0 to skip it.
 CRAWLING_SEED_FC_ENABLE=1
-CRAWLING_SEED_FC_INPUT_CIFTI=""          # empty => final concatenated CIFTI
-CRAWLING_SEED_FC_INPUT_TAG=""            # empty => CONCAT_INPUT_TAG
-CRAWLING_SEED_FC_OUTDIR=""               # empty => func/<FUNC_DIRNAME>/QC/CrawlingSeedFC
+CRAWLING_SEED_FC_INPUT_CIFTI=""          # pipeline => selected PFM CIFTI; standalone override
+CRAWLING_SEED_FC_INPUT_TAG=""            # standalone only; pipeline uses selected PFM input
+CRAWLING_SEED_FC_OUTDIR=""               # pipeline => <PFM_OUTDIR>/QC/CrawlingSeedFC
 CRAWLING_SEED_FC_WB_SURFER2=""           # direct path to wb_surfer2; overrides conda env
 CRAWLING_SEED_FC_WB_SURFER2_CONDA_ENV="wbsurfer_env"
 CRAWLING_SEED_FC_SCENE_TEMPLATE="$MEDIR/res0urces/CrawlingSeedFC/FlatMaps+Inflated.scene"
@@ -236,41 +253,27 @@ CRAWLING_SEED_FC_SKIP_MOVIE=0
 CRAWLING_SEED_FC_KEEP_DCONN=0
 
 # -----------------------------------------------------------------------------
-# 3g) NSI
+# 3g) Selected PFM dataset NSI
 # -----------------------------------------------------------------------------
 NSI_ENABLE=1                     # optional downstream metric; set 0 to skip when only preprocessing/QC is needed
 NSI_USE_EXTERNAL_CLI=1
 NSI_PYTHON="$CONCAT_PYTHON"
-NSI_INPUT_TAG=""                 # empty => derive from CONCAT_INPUT_TAG
+NSI_INPUT_TAG=""                 # standalone only; pipeline uses selected PFM CIFTI
 NSI_CONCAT_OUT_SUBDIR="$CONCAT_OUT_SUBDIR"
 NSI_FD_THRESHOLD="$CONCAT_FD_THRESHOLD"
 NSI_USABILITY_MODEL=1
 NSI_RELIABILITY_MODEL=0
 
 # -----------------------------------------------------------------------------
-# 3h) PFM
+# 3h) PFM mapping (after selected-dataset QC)
 # -----------------------------------------------------------------------------
-PFM_INPUT_TASKS=("rest") # Or ("rest" "Motor" "WorkingMemory") for configured tasks.
 PFM_ENABLE=0                     # set 1 after configuring optional PFM inputs
 PFM_STRATEGY="ridgepfm"      # ridgepfm | infomap | all
-PFM_PYTHON="$PIPELINE_PYTHON"
-PFM_INPUT_CIFTI=""               # Optional explicit CIFTI override; otherwise use PFM_INPUT_TASKS
-PFM_INPUT_TAG=""                 # empty => use each selected task's concatenation metadata
-PFM_CONCAT_OUT_SUBDIR="$CONCAT_OUT_SUBDIR"
-PFM_FD_THRESHOLD="$CONCAT_FD_THRESHOLD"
 PFM_DISTANCE_MATRIX=""           # empty => <SubjectDir>/anat/T1w/fsaverage_LR32k/DistanceMatrix.npy
 PFM_DISTANCE_BUILD_IF_MISSING=1
 PFM_DISTANCE_CORTEX_MODE="hybrid"      # geodesic | hybrid | euclidean
 PFM_DISTANCE_EUCLIDEAN_OVERRIDE_MM=5 # hybrid only: use 3D Euclidean distance for same-hemi cortical pairs this close
-PFM_OUTDIR=""                    # empty => <SubjectDir>/pfm
-PFM_CONCAT_DIR=""               # Optional FD/ScanIdx/ScanInfo directory for explicit CIFTI overrides
 PFM_PREP_DIR=""                  # empty => <PFM_OUTDIR>/prep
-
-# Optional post-PFM manual update pass. This scans per-density review tables and
-# updates labeled density and consensus outputs without rerunning Infomap.
-PFM_INFOMAP_UPDATE_ENABLE=0
-PFM_INFOMAP_UPDATE_TABLE_GLOB="GraphDensity_*/Bipartite_PhysicalCommunities+AlgorithmicLabeling_ManualCorrections.csv"
-PFM_INFOMAP_UPDATE_OUTFILE="InfomapNetworkLabels_ManualAdjusted"
 
 # Optional homogeneity/spin-null diagnostics. A rotation-index CIFTI should use
 # 1-based source indices in cortex rows, with 0 for unmapped vertices.
@@ -289,8 +292,8 @@ PFM_HOMOGENEITY_ALPHA=0.05
 # whose inputs are ACPC images.
 TANS_ENABLE=0
 TANS_CONFIG_FILE=""              # required when TANS_ENABLE=1; YAML template
-TANS_CODE_ROOT="/path/to/pfm-tans/pipeline"
-TANS_PYTHON="python3"
+TANS_CODE_ROOT="" # Directory containing the installed pfm-tans run_pipeline.py.
+TANS_PYTHON="" # SimNIBS Python executable; blank uses python3 from the active environment.
 TANS_OUTPUT_DIRNAME="tans"        # folder under <SubjectDir>; empty => tans; no paths
 TANS_PFM_DIR=""                  # empty => <SubjectDir>/pfm/RidgePFM; old layouts remain readable
 TANS_WORKERS=6
@@ -300,8 +303,8 @@ TANS_COARSE_GRID_DENSITY=0.85   # requested projected-target coverage, 0-1
 # plus this subject's L_G_front_middle label. A binary CIFTI path overrides it.
 TANS_TARGET_SEARCH_SPACE="glasser_predefined_plus_subject_specific_mfg"
 TANS_INCLUDE_SM_HAND_CALIBRATION=1 # 1: run left-precentral SM-Hand first for dose transfer
-TANS_SM_HAND_COIL_MODEL="/path/to/SimNIBS/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_C-B60.ccd"
-TANS_TREATMENT_COIL_MODEL="/path/to/SimNIBS/resources/coil_models/Drakaki_BrainStim_2022/MagVenture_Cool-B65.ccd"
+TANS_SM_HAND_COIL_MODEL="" # Full path to your SM-Hand calibration coil .ccd file.
+TANS_TREATMENT_COIL_MODEL="" # Full path to your treatment coil .ccd file.
 TANS_CALIBRATION_REGISTRY="" # empty => pfm-tans bundled registry
 TANS_SM_HAND_DIDT_CALIBRATION="magventure_x100_c-b60_biphasic_normal"
 TANS_TREATMENT_DIDT_CALIBRATION="" # Select the calibration matching your coil and hardware.
@@ -315,6 +318,19 @@ TANS_STOP_AFTER="reports"        # headmodel|targets|plan|search|reports
 TANS_RESUME=1
 
 # =============================================================================
+# Optional independent consumers after successful core processing.
+# PIPELINE_RUN_CORE=0 runs only enabled consumers on existing outputs.
+PIPELINE_RUN_CORE=1
+# Task GLMs require an explicit task list and recipe directory.
+TASK_MODEL_ENABLE=0  # experimental; work in progress
+TASK_MODEL_CONFIG_DIR="$MEDIR/config/task_models"
+TASK_MODEL_TASKS=()              # REQUIRED when enabled; e.g. ("motor" "effort")
+TASK_MODEL_PYTHON="$PIPELINE_PYTHON"
+TASK_MODEL_JOBS=2
+TASK_MODEL_OUTDIR=""             # blank => <SubjectDir>/task_models
+TASK_MODEL_NETWORK_LABEL=""      # blank => <PFM_OUTDIR>/RidgePFM/RidgePFM_VTX.dlabel.nii
+FUNC_TASK_MODEL_MODULE="$MEDIR/modules/mefmri_func_task_model.sh"
+
 # 4) Advanced / Rarely Changed Knobs
 # =============================================================================
 
@@ -339,7 +355,6 @@ FUNC_VOL2SURF_MODULE="$MEDIR/modules/mefmri_func_vol2surf.sh"
 FUNC_CONCAT_MODULE="$MEDIR/modules/mefmri_func_concat.sh"
 FUNC_NSI_MODULE="$MEDIR/modules/mefmri_func_nsi.sh"
 FUNC_PFM_MODULE="$MEDIR/modules/mefmri_func_pfm.sh"
-FUNC_PFM_INFOMAP_UPDATE_MODULE="$MEDIR/modules/mefmri_func_pfm_infomap_update.sh"
 FUNC_CRAWLING_SEED_FC_MODULE="$MEDIR/modules/mefmri_func_crawling_seed_fc.sh"
 FUNC_TANS_MODULE="$MEDIR/modules/mefmri_func_tans.sh"
 
@@ -429,7 +444,7 @@ NSI_RELIABILITY_NSI_T=10
 NSI_RELIABILITY_QUERY_T=60
 NSI_EXTERNAL_ROOT="$MEDIR/lib/pfm-nsi"
 NSI_EXTERNAL_ENTRY="pfm_nsi.cli"
-NSI_EXTERNAL_OUT_SUBDIR=""              # empty => write directly to func/<FUNC_DIRNAME>/QC/NSI
+NSI_EXTERNAL_OUT_SUBDIR=""              # empty => <PFM_OUTDIR>/QC/NSI
 NSI_EXTERNAL_PREFIX="pfm_nsi"
 NSI_EXTERNAL_USABILITY="$NSI_USABILITY_MODEL"
 NSI_EXTERNAL_RELIABILITY="$NSI_RELIABILITY_MODEL"
@@ -473,7 +488,7 @@ PFM_RF_OUTFILE="RidgePFM_VTX"
 PFM_RF_FC_WEIGHT=1.0              # keep 1 for the parameter ranges reviewed above
 PFM_RF_FC_DEMEAN=0             # set 1 when ridgepfm input has not had GSR/MGTR; demeans each FC fingerprint
 PFM_RF_POSITIVE_FC_ONLY=0         # experimental; set 1 to fit only positive target FC edges (legacy V5 option)
-PFM_RF_SPATIAL_WEIGHT=0.025         # 0.025 allows more individual departures; 0.05 favors label repeatability
+PFM_RF_SPATIAL_WEIGHT=0.025         # 0.025 allows more individual departures; 0.05 favors network map reliability
 PFM_RF_SPATIAL_PRIOR_TRANSFORM="logit" # reviewed ranges use logit; another transform changes the weight scale
 PFM_RF_LAMBDA=10                  # ~30 retained min: 1; multiple hours / individual topography: consider 10-30
 PFM_RF_LOCAL_EXCLUSION_MM=10      # validated target-specific local exclusion radius
@@ -485,7 +500,23 @@ PFM_RF_REPEAT_KEEP_RUN_ARTIFACTS=0 # combined per-scan dlabel is retained; disca
 PFM_RF_SUBCORT_REGRESS_ENABLE=1   # regress nearby cortical signal from subcortex before PFM estimation
 PFM_RF_SUBCORT_REGRESS_DISTANCE_MM=20
 PFM_RF_BRAIN_STRUCTURES_CSV=""    # empty maps every CIFTI grayordinate, including structures without spatial priors
-PFM_RF_SMOOTHING_KERNEL=1.7       # mm; set 0 to disable CIFTI smoothing before PFM estimation
+PFM_RF_SMOOTHING_KERNEL=1.7       # Gaussian sigma mm (~4mm FWHM); 0 disables additional smoothing
+
+# Optional blocked CV; fixed scalar parameters above apply when disabled.
+PFM_RF_CV_ENABLE=0
+PFM_RF_CV_LAMBDAS="0.01,0.03,0.1,0.3,1,3,10,30"
+PFM_RF_CV_SPATIAL_WEIGHTS="0.01,0.025,0.05,0.1,0.25,0.5"
+PFM_RF_CV_MAX_FC_LOSS=0.10        # retain >=90% of best positive null-adjusted held-out homogeneity, then maximize Dice
+PFM_RF_CV_MIN_PARTITION_MINUTES=10 # minimum retained minutes in EACH side
+PFM_RF_CV_MAX_COMPARISONS=10      # ceiling; disjoint run groups, at least2 runs per comparison
+PFM_RF_CV_N_ROTATIONS=100       # per A/B comparison; both directions share indices
+PFM_RF_CV_GUARD_SECONDS=32        # excluded on EACH side of the within-run midpoint
+PFM_RF_CV_TR_SECONDS=""            # optional override; otherwise ScanInfo TR, then CIFTI header
+PFM_RF_CV_THREADS=4
+PFM_RF_CV_RENDER=1                # Workbench flat + inflated captures; requires Pillow
+PFM_RF_CV_KEEP_CACHE=0            # private heavy geometry cache only; scored maps/partitions retained
+PFM_RF_CV_OUTDIR_NAME="CrossValidation"
+PFM_RF_CV_ROTATIONS_CIFTI=""       # empty => packaged RidgePFM_CV_Rotations.dtseries.nii (100 rotations)
 
 # Optional areal parcellation of the network-level PFM output.
 PFM_AREAL_ENABLE=1
@@ -589,3 +620,7 @@ MEICA_RECLASSIFY_SPATIAL_QC_MOVIE_FFPROBE="ffprobe"
 # 4m) Future Experimental ICA-AROMA Reclassification
 # -----------------------------------------------------------------------------
 AROMA_NSI_THRESHOLD=0.05          # ignored unless AROMA_NSI_RECLASSIFY_ENABLE=1
+
+# Separate network-ordered QC after a successful PFM pass.
+PFM_NETWORK_GRAYPLOTS_ENABLE=1  # update func/<task>/QC/MotionGrayPlots in place
+PFM_NETWORK_GRAYPLOTS_LABEL=""  # default: selected PFM root/RidgePFM/<PFM_RF_OUTFILE>.dlabel.nii

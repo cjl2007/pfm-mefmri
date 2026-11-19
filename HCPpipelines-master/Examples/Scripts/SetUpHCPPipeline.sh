@@ -10,13 +10,17 @@ HCPPIPEDIR_DEFAULT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 export HCPPIPEDIR="${HCPPIPEDIR_DEFAULT}"
 
 ## Set up other environment variables
-export MSM="${MSM:-/usr/local/msm_ubuntu_v3}"
-export MSMBINDIR="${MSMBINDIR:-/usr/local/msm_ubuntu_v3}"
+export MSM="${MSM:-}" # Optional MSM installation directory supplied by your environment.
+export MSMBINDIR="${MSMBINDIR:-}" # Directory containing msm; otherwise resolve it from PATH.
+if [[ -z "$MSMBINDIR" ]] && command -v msm >/dev/null 2>&1; then
+    export MSMBINDIR="$(dirname "$(command -v msm)")"
+fi
+export MSM="${MSM:-$MSMBINDIR}"
 # NOTE: MSMBINDIR should point to the directory containing the 'msm' binary (or to the msm binary itself).
-export MATLAB_COMPILER_RUNTIME=/export/matlab/MCR/R2017b/v93
-export FSL_FIXDIR=/usr/local/fix
+export MATLAB_COMPILER_RUNTIME="${MATLAB_COMPILER_RUNTIME:-}" # Set only for compiled MATLAB tools.
+export FSL_FIXDIR="${FSL_FIXDIR:-}" # Set only when using FSL FIX.
 # if a suitable version of wb_command is on your $PATH, CARET7DIR can be blank
-export CARET7DIR=
+export CARET7DIR="${CARET7DIR:-}"
 
 ## Set up FSL (if not already done so in the running environment)
 ## Uncomment the following 2 lines (remove the leading #) and correct the FSLDIR setting for your setup
@@ -24,7 +28,7 @@ export CARET7DIR=
 #source "$FSLDIR/etc/fslconf/fsl.sh"
 
 ## Let FreeSurfer explicitly know what version of FSL to use (this shouldn't need changing)
-export FSL_DIR="${FSLDIR}"
+export FSL_DIR="${FSLDIR:-}"
 
 ## Set up FreeSurfer (if not already done so in the running environment)
 ## Uncomment the following 2 lines (remove the leading #) and correct the FREESURFER_HOME setting for your setup

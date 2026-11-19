@@ -64,10 +64,10 @@ fi
 
 FD_TAG="${NSI_FD_THRESHOLD//./p}"
 BASE="${FuncFilePrefix}_${NSI_INPUT_TAG}"
-CENSORED_CIFTI="${StudyFolder}/${Subject}/func/${FuncDirName}/${NSI_CONCAT_OUT_SUBDIR}/${BASE}_Concatenated+FDlt${FD_TAG}.dtseries.nii"
-SCAN_INFO_JSON="${StudyFolder}/${Subject}/func/${FuncDirName}/${NSI_CONCAT_OUT_SUBDIR}/ScanInfo.json"
+CENSORED_CIFTI="${NSI_INPUT_CIFTI:-${StudyFolder}/${Subject}/func/${FuncDirName}/${NSI_CONCAT_OUT_SUBDIR}/${BASE}_Concatenated+FDlt${FD_TAG}.dtseries.nii}"
+SCAN_INFO_JSON="${NSI_SCAN_INFO_JSON:-${StudyFolder}/${Subject}/func/${FuncDirName}/${NSI_CONCAT_OUT_SUBDIR}/ScanInfo.json}"
 QC_OUTPUT_DIRNAME="${QC_OUTPUT_DIRNAME:-QC}"
-EXTERNAL_OUTDIR_BASE="${StudyFolder}/${Subject}/func/${FuncDirName}/${QC_OUTPUT_DIRNAME}/NSI"
+EXTERNAL_OUTDIR_BASE="${NSI_OUTDIR:-${PFM_DATASET_ROOT:-${StudyFolder}/${Subject}/func/${FuncDirName}}/${QC_OUTPUT_DIRNAME}/NSI}"
 EXTERNAL_OUTDIR="$EXTERNAL_OUTDIR_BASE"
 if [[ -n "${NSI_EXTERNAL_OUT_SUBDIR}" ]]; then
   EXTERNAL_OUTDIR="$EXTERNAL_OUTDIR_BASE/${NSI_EXTERNAL_OUT_SUBDIR}"
@@ -78,30 +78,19 @@ if [[ ! -f "$CENSORED_CIFTI" ]]; then
   echo "Run concat stage first (or align NSI_INPUT_TAG/NSI_FD_THRESHOLD with existing outputs)."
   exit 2
 fi
-if [[ ! -f "$SCAN_INFO_JSON" ]]; then
-  echo "ERROR: ScanInfo.json not found: $SCAN_INFO_JSON"
-  echo "Run concat stage first so NSI can infer concatenated duration."
-  exit 2
-fi
-
-TOTAL_MINUTES="$(
-  "$NSI_PYTHON" - "$SCAN_INFO_JSON" <<'PY'
-import json
-import pathlib
+# Model duration is the actual input CIFTI duration after frame selection/censoring.
+TOTAL_MINUTES="$("$NSI_PYTHON" - "$CENSORED_CIFTI" <<'PYTIME'
 import sys
-
-scan_info = pathlib.Path(sys.argv[1])
-runs = json.loads(scan_info.read_text())
-total_seconds = 0.0
-for run in runs:
-    run_dir = pathlib.Path(run["run_dir"])
-    tr_txt = run_dir / "TR.txt"
-    tr = 2.0
-    if tr_txt.exists():
-        tr = float(tr_txt.read_text().strip())
-    total_seconds += float(run["n_timepoints"]) * tr
-print(f"{(total_seconds / 60.0):.6f}")
-PY
+import nibabel as nib
+from nibabel.cifti2.cifti2_axes import SeriesAxis
+img = nib.load(sys.argv[1])
+axis = img.header.get_axis(0)
+if not isinstance(axis, SeriesAxis) or axis.unit != 'SECOND' or axis.step <= 0:
+    raise ValueError('NSI requires a CIFTI time axis in seconds with positive TR')
+if axis.size < 2:
+    raise ValueError('NSI requires at least two retained frames')
+print('{:.6f}'.format(axis.size * axis.step / 60.0))
+PYTIME
 )"
 
 mkdir -p "$EXTERNAL_OUTDIR"
@@ -119,7 +108,7 @@ fi
 echo "[nsi] external NSI CLI root: ${NSI_EXTERNAL_ROOT}"
 echo "[nsi] external NSI workdir: ${EXTERNAL_WORKDIR}"
 echo "[nsi] external NSI output dir: ${EXTERNAL_OUTDIR}"
-echo "[nsi] concatenated duration (minutes): ${TOTAL_MINUTES}"
+echo "[nsi] retained input duration (minutes): ${TOTAL_MINUTES}"
 
 run_external_nsi() {
   local model="$1"

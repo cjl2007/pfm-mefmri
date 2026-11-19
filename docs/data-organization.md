@@ -122,7 +122,7 @@ SUB001/
 │   │   │   ├── ScanIdx.mat
 │   │   │   └── ScanIdx_Censored.mat
 │   │   └── QC/                             # Coreg/, Fieldmaps/, MotionGrayPlots/,
-│   │                                       # NSI/, CrawlingSeedFC/, RunMetadata/
+│   │                                       # RunMetadata/, ModuleLogs/ (dataset QC is under pfm/)
 │   ├── Motor/
 │   │   ├── session_1/
 │   │   │   ├── run_1/                      # Motor_OCME+MEICA.dtseries.nii
@@ -145,6 +145,13 @@ SUB001/
     │   ├── PFMPrepSummary.json
     │   ├── ScanInfo.json
     │   └── ScanIdx_Censored.mat
+    ├── QC/                                # exact selected PFM dataset
+    │   ├── NSI/
+    │   ├── CrawlingSeedFC/
+    │   ├── nsi_dataset.json
+    │   ├── crawling_seed_fc_dataset.json
+    │   ├── ModuleLogs/
+    │   └── RunMetadata/
     └── RidgePFM/                           # when RidgePFM is enabled
         ├── RidgePFM_VTX.dlabel.nii
         ├── RidgePFM_VTX_FusedScoreSoftmax.dtseries.nii
@@ -158,6 +165,10 @@ run/session identities associated with the concatenated and retained frames.
 
 Each dataset has its own functional derivatives and QC. The shared subject-level
 `pfm/` folder records the selected PFM inputs in `dataset.json` and stores the
-enabled RidgePFM and/or Infomap results. Existing older results are not relocated.
+enabled RidgePFM and/or Infomap results plus NSI and crawling-seed FC for those
+same selected inputs. Rest-plus-task selection therefore has rest-plus-task QC.
+NSI and movies use the selected censored CIFTI before mapping-only preprocessing.
+Separate `PFM_OUTDIR` roots retain rest-only and combined datasets without mixing
+results. Existing older per-task QC is not moved or deleted.
 
 [Back to README](../README.md#data-organization)

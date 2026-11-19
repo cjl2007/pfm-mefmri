@@ -2,7 +2,7 @@ function run_nordic_mefmri(fn_magn_in, fn_phase_in, fn_out_prefix, nordic_code_d
 %RUN_NORDIC_MEFMRI Thin pipeline wrapper around the official NIFTI_NORDIC.
 
 if nargin < 4 || isempty(nordic_code_dir)
-    nordic_code_dir = '/home/charleslynch/Desktop/NORDIC-Test/code';
+    nordic_code_dir = fullfile(fileparts(mfilename('fullpath')), 'nordic');
 end
 if nargin < 5
     log_path = '';

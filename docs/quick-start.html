@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Quick Start</title><link rel="stylesheet" href="assets/docs.css"></head><body><main><nav><a href="index.html">pfm-mefmri</a><a href="README.html">Guides</a></nav><h1 id="quick-start">Quick Start</h1><p>This page gives the shortest path from a prepared subject directory to pipeline outputs. See <a href="pipeline-overview.html">Pipeline Overview</a> for the full module map.</p><h2 id="1-install-dependencies">1. Install Dependencies</h2><p>Install the tools listed in <code>SOFTWARE_DEPENDENCIES.txt</code>, then make sure the configured environments expose the expected commands. Common requirements are:</p><ul><li>HCP Pipelines and Connectome Workbench (<code>wb_command</code>).</li><li>FSL commands such as <code>fslmaths</code>, <code>flirt</code>, <code>applywarp</code>, and <code>topup</code>.</li><li>FreeSurfer with a readable <code>license.txt</code>.</li><li>An MSM build if using <code>HCP_REGNAME="MSMSulc"</code>.</li><li>SimNIBS CHARM if using CHARM-derived anatomical masks.</li><li>tedana/ME-ICA, ICA-AROMA, MEDIC/warpkit, and <code>pfm-nsi</code> when those branches are enabled.</li></ul><h2 id="2-configure-the-pipeline">2. Configure The Pipeline</h2><p>Start with the <a href="configuration.html#public-templates-and-project-owned-settings">template inventory and configuration setup</a> to copy the processing and site environment templates into your study folder. Set your software paths and pass that study config explicitly when launching; do not run the config as a script. The <a href="dependencies.html">dependency guide</a> separates core and optional tools.</p><p>Review the path and environment settings near the top first:</p><div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb1-1" title="1"><span class="va">EnvironmentScript=</span>/path/to/MyStudy/config/environment.sh</a>
+<a class="sourceLine" id="cb1-2" title="2"><span class="va">CHARM_BIN=</span>/path/to/charm</a>
+<a class="sourceLine" id="cb1-3" title="3"><span class="va">FS_LICENSE=</span>/path/to/license.txt</a></code></pre></div><p>Then set the main routing options:</p><div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb2-1" title="1"><span class="va">FUNC_DIRNAME=</span><span class="st">&quot;rest&quot;</span></a>
+<a class="sourceLine" id="cb2-2" title="2"><span class="va">FUNC_FILE_PREFIX=</span><span class="st">&quot;Rest&quot;</span></a>
+<a class="sourceLine" id="cb2-3" title="3"><span class="va">PROCESSING_MODE=</span><span class="st">&quot;auto&quot;</span></a>
+<a class="sourceLine" id="cb2-4" title="4"><span class="va">DISTORTION_CORRECTION_MODE=</span><span class="st">&quot;medic&quot;</span></a>
+<a class="sourceLine" id="cb2-5" title="5"><span class="va">MULTI_ECHO_DENOISE_METHOD=</span><span class="st">&quot;meica&quot;</span></a>
+<a class="sourceLine" id="cb2-6" title="6"><span class="va">SINGLE_ECHO_DENOISE_METHOD=</span><span class="st">&quot;acompcor&quot;</span></a>
+<a class="sourceLine" id="cb2-7" title="7"><span class="va">PFM_ENABLE=</span>1  <span class="co"># optional; leave 0 for preprocessing/QC/NSI only</span></a>
+<a class="sourceLine" id="cb2-8" title="8"><span class="va">PFM_STRATEGY=</span><span class="st">&quot;ridgepfm&quot;</span></a></code></pre></div><p>For a fresh run, use:</p><div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb3-1" title="1"><span class="va">START_FROM_MODULE=</span><span class="st">&quot;validate&quot;</span></a>
+<a class="sourceLine" id="cb3-2" title="2"><span class="va">STOP_AFTER_MODULE=</span><span class="st">&quot;&quot;</span></a></code></pre></div><p>For debugging or reruns, <code>START_FROM_MODULE</code> and <code>STOP_AFTER_MODULE</code> accept:</p><pre class="text"><code>validate | anat_hcp | anat_charm | fieldmaps | coreg | headmotion |
+denoise | mgtr | vol2surf | concat | pfm_prepare | crawling_seed_fc | nsi | pfm
+</code></pre><p>When a study requests MEDIC but a run uses the automatic TOPUP fallback, restarting at <code>coreg</code> or <code>headmotion</code> resolves the mode from existing outputs. The runner retains MEDIC when every selected run has its expected nonempty displacement map. If none has a MEDIC map, it can reuse the saved TOPUP outputs: the measured-fieldmap marker, acquisition parameters, and all three average fieldmap images. This does not require repeating raw-phase preflight or TOPUP estimation. Partial MEDIC outputs or incomplete TOPUP outputs stop the restart with an actionable error; direct-B0 and no-fieldmap placeholders are not treated as TOPUP. Run metadata records both the requested and resolved modes.</p><p>To change distortion-correction methods, restart at <code>fieldmaps</code>. After changing coregistration, rerun headmotion and downstream analyses so they use the new transforms. Stop any earlier process using the same subject outputs before starting a replacement run.</p><h2 id="3-prepare-input-layout">3. Prepare Input Layout</h2><p>The default rest layout is:</p><pre class="text"><code>&lt;SubjectDir&gt;/
+  anat/
+    unprocessed/
+      T1w/
+      T2w/
+  func/
+    unprocessed/
+      rest/
+        field_maps/
+          AP_S1_R1.nii.gz
+          AP_S1_R1.json
+          PA_S1_R1.nii.gz
+          PA_S1_R1.json
+        session_1/
+          run_1/
+            Rest_S1_R1_E1.nii.gz
+            Rest_S1_R1_E1.json
+            Rest_S1_R1_E2.nii.gz
+            Rest_S1_R1_E2.json
+            Rest_S1_R1_E3.nii.gz
+            Rest_S1_R1_E3.json
+            SBref_S1_R1_E1.nii.gz
+            SBref_S1_R1_E1.json
+</code></pre><p>Task-local field maps are read from:</p><pre class="text"><code>func/unprocessed/&lt;FUNC_DIRNAME&gt;/field_maps/
+</code></pre><p>Processed field maps are written to:</p><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/field_maps/
+</code></pre><p>This prevents one task or acquisition from silently reusing another task's field maps.</p><h2 id="4-run-one-subject">4. Run One Subject</h2><div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb8-1" title="1"><span class="fu">bash</span> bin/mefmri_pipeline.sh /path/to/MyStudy/SUB001 /path/to/MyStudy/config/mefmri.sh</a></code></pre></div><p>Start with <code>STOP_AFTER_MODULE="validate"</code> and review validation output before setting it to <code>""</code> for a complete run. The subject directory is the subject folder itself, not the study root. Omitting the config argument uses the repository template.</p><h2 id="5-run-all-task-folders">5. Run All Task Folders</h2><p>To process every task folder under <code>func/unprocessed/</code>:</p><div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb9-1" title="1"><span class="va">FUNC_DIRNAME=</span><span class="st">&quot;All&quot;</span></a></code></pre></div><p>Anatomy runs once, then each discovered task folder gets its own functional field maps, transforms, QC, concatenation, NSI, and PFM outputs.</p><h2 id="6-first-outputs-to-review">6. First Outputs To Review</h2><p>After a full run, start with:</p><pre class="text"><code>func/&lt;FUNC_DIRNAME&gt;/QC/Validation/
+func/&lt;FUNC_DIRNAME&gt;/QC/Coreg/functional_coregistration_qc.html
+func/&lt;FUNC_DIRNAME&gt;/QC/Fieldmaps/distortion_correction_qc.html
+func/&lt;FUNC_DIRNAME&gt;/QC/MotionGrayPlots/motion_grayplots_qc.html
+pfm/QC/NSI/
+func/&lt;FUNC_DIRNAME&gt;/PFM/
+</code></pre><p>Exact availability depends on enabled modules and the selected denoising/PFM strategy.</p><p>For supported task GLMs after PFM, enable <code>TASK_MODEL_ENABLE=1</code> and select <code>STOP_AFTER_MODULE="pfm"</code>. See <a href="task-modeling.html">task modeling</a>.</p><p>See <a href="postprocessing.html">independent postprocessing controls</a>. TANS and task modeling are enabled independently of core start/stop routing.</p>
+</main></body></html>

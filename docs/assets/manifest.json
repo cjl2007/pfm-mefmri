@@ -5,9 +5,9 @@
   "assets": [
     {
       "file": "qc-coreg-bbr.png",
-      "kind": "unchanged production reportlet",
-      "description": "One run: corrected SBRef with anatomical outlines.",
-      "sha256": "37bd1cc08ebc0921ef4febd17808d1bc4b21184e52d5b533b9ee56845e94f1ad"
+      "kind": "ME01 quality-control example",
+      "description": "Fixed-crop alignment across 44 acquisitions.",
+      "sha256": "2e6565e1f37bb114d6a43f37fa9b839d38ef161dada0caba8ed63981b78b9af8"
     },
     {
       "file": "qc-sdc-flicker.gif",
@@ -65,9 +65,9 @@
     },
     {
       "file": "qc-motion-grayplots-me01.png",
-      "kind": "production ME01 QC re-render",
-      "description": "ME01 session 1/run 1 with scanner-aligned respiration and pulse, 1200 sampled grayordinates, and FD 0.3 mm. Saved stage data; no denoising rerun.",
-      "sha256": "cd10816cb9f7212352e5e23b50c2be83b5eb69a25d990928216a4bca1d5c00eb"
+      "kind": "ME01 quality-control example",
+      "description": "Motion and physiology with network-ordered cortical and subcortical blocks; the example cortical-only CV export leaves volume labels unassigned.",
+      "sha256": "08dbf822e2ff2e92531f7c2e7eae88cfc82c9d0b5bd1365368d34d48aaccf233"
     },
     {
       "file": "qc-seed-fc-me01.mp4",
@@ -85,7 +85,7 @@
       "file": "individual-workflow.svg",
       "kind": "conceptual code-native diagram",
       "description": "Illustrative workflow; no participant data.",
-      "sha256": "490e6161ba98d5544c6cb9f2411c1b6f34e1c860b937ad357c4b94a3f55eeb70"
+      "sha256": "9e58f90ee5a241bc406bde7b8214af2edd0c3f0405efdcd59fe7b25c5125b040"
     },
     {
       "file": "qc-coreg-over-time-me01.gif",
@@ -115,31 +115,31 @@
       "file": "me01-coreg-transition-highlights.png",
       "kind": "documentation figure",
       "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
-      "sha256": "3e3ab8e94748a04ae66d88aa3ddf1729fc4da41bea79ac6b6df02f7e2cfc51c0"
+      "sha256": "ff9234d2ad497a35fe93d005b13b9ab64322b8859caf949ca51c9c953aa9c33b"
     },
     {
       "file": "me01-coreg-before-after.gif",
       "kind": "documentation figure",
       "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
-      "sha256": "fa1a7a3429071a63bdfafb0b952adbde8b2715ae0b877a415579dbc1ebeb688a"
+      "sha256": "6057097f0692655da87deb3f4aa7065282796ee19a9c9e5f923f3e31e57e3d6b"
     },
     {
       "file": "me01-coreg-before-after.mp4",
       "kind": "documentation figure",
       "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
-      "sha256": "52f292c1f484582caf552810f87bbb2ccb257e6be6d2fdca658d31626e997a22"
+      "sha256": "43c35c9b897235064a0f48a0a7bcb8ce262e30aabed46fcd2c41d7d238c81d9a"
     },
     {
       "file": "pipeline-journey.svg",
       "kind": "documentation figure",
       "description": "Data journey: HCP anatomy and functional preprocessing; PFM to TANS; a separate branch for individual-focused analyses and longitudinal brain\u2013behavior studies.",
-      "sha256": "caae7003ff640e0c18e74240c25cff4b70fe91bec28cd1dda032330648c87383"
+      "sha256": "a2f9f90aeacc37400b2de216aca4dd5c0c6f4bf2842d124c7c286ef17c909fb8"
     },
     {
       "file": "me01-coreg-transition-highlights.gif",
       "kind": "documentation figure",
       "description": "Brain-focused within-subject alignment comparison; fixed anatomical mask plus 3 mm margin, identical across methods and scans.",
-      "sha256": "fa2df0c2eb736beb2129828ae0dd941d1e0c70953146b9a4acb7ad27df638e49"
+      "sha256": "47845e8147305f5f52e3f8697f051b9acd2ce33b569615b75eaa328e12bc818b"
     },
     {
       "file": "ridgepfm/ridgepfm_tradeoff_full_axis.png",
@@ -242,31 +242,31 @@
     {
       "file": "coreg-stability/individual_4_matched_alignment.gif",
       "kind": "Reference-stability demonstration",
-      "sha256": "36a9e304df0fc450f7016fd284224f2b4515e68fffe4823af33a2957e1eb7439",
+      "sha256": "f601a24947a71a7445bb573c1538b6213e6b8b3a09f0a5f650c3acb6d82fc4b7",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/individual_5_matched_alignment.gif",
       "kind": "Reference-stability demonstration",
-      "sha256": "f09c4a84e0121dcb94b7c3817a78e90b97dde73e9fad181b9e2d24d7c95bc0dc",
+      "sha256": "1c7b2d15d8151adcb81433e09e2a7b1650e329d7b0fc801d92322f0708b94888",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/individual_2_matched_alignment.gif",
       "kind": "Reference-stability demonstration",
-      "sha256": "f12be882a76c420cfa8f069a7661703e4587098085b82058024d318d598314dd",
+      "sha256": "80ffbe021d18de15e8bf4d7b86ca4c251449057d4d7237ef802e29351f7f3d99",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/six_subject_stability.png",
       "kind": "Reference-stability demonstration",
-      "sha256": "8d74563b63290f5bcf8570b929f5ae53fb52ec4500509c18a1bde95a667b64f2",
+      "sha256": "d110c3ff05add1d169886755487b6b489088e3215343071e710da8ca1041596e",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/individual_3_matched_alignment.gif",
       "kind": "Reference-stability demonstration",
-      "sha256": "fff0a980487100aafc6983f23b1d7fa3c05119452f574055b2c68f162066ce17",
+      "sha256": "679eebbd958232051749c90e7c29123f7ea47e96e1027c33b26222ce0c1e8898",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
@@ -278,31 +278,31 @@
     {
       "file": "coreg-stability/six_subject_stability.pdf",
       "kind": "Reference-stability demonstration",
-      "sha256": "27b8eb901000336a699729bc97dc92ab3bcdde16e500a1cdfbf77d3b6518d1d4",
+      "sha256": "a70dd1b11b2182c2e4e438377e176eceddd833a9038b66d98caff96fb53ff89b",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/individual_6_matched_alignment.gif",
       "kind": "Reference-stability demonstration",
-      "sha256": "25c56202c352e5e935a98120043900577cfbd74e90ddfc46290f8e63e493bf80",
+      "sha256": "566d276f4119a460f1be35dd9736eee9d74d89632dff41072a35addf04e0a2f2",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/individual_1_matched_alignment.gif",
       "kind": "Reference-stability demonstration",
-      "sha256": "2e422012883d55db6cb5ff63634593c656b0b944d0ad2bd3d313a150dc17bec5",
+      "sha256": "496a4d9ddf2e7ae2896a2638829ced73f6bf2cffb9cbaed1c1448a2ecc964833",
       "description": "Matched native-reference images; descriptive in-sample QC."
     },
     {
       "file": "coreg-stability/refinement_spread.pdf",
       "kind": "Refinement off/on spread comparison",
-      "sha256": "7beef9035c0192135a586219bc11a1f1c13c36350d64725e9df18ac8a5889bae",
+      "sha256": "6e870e49929d10f10876a76517d48a9f117bed3269573af85270f8aab4133c11",
       "description": "Per-scan median pairwise normalized reference RMS; descriptive within-individual distributions."
     },
     {
       "file": "coreg-stability/refinement_spread.png",
       "kind": "Refinement off/on spread comparison",
-      "sha256": "76036619c9bf122a827eb7b7033d7b102228bb574cddf34b7a9f0dfe864fe574",
+      "sha256": "4d1a29d744dcd4f063f1eab8d829fc5ec80506baa2c2e23f24e5dc53ca336306",
       "description": "Per-scan median pairwise normalized reference RMS; descriptive within-individual distributions."
     },
     {
@@ -314,13 +314,13 @@
     {
       "file": "coreg-stability/refinement_stability_sharpness.pdf",
       "kind": "Single-resampling workflow and spatial-texture diagnostic",
-      "sha256": "4a1ab8fc18714882b012457a4e7e6696b37780d14d25af5e7b0a956cd8c066da",
+      "sha256": "39868f128d2f19036f4b9034d469ed35d16c19dee4163eef056e5eb62444ace1",
       "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
     },
     {
       "file": "coreg-stability/refinement_stability_sharpness.png",
       "kind": "Single-resampling workflow and spatial-texture diagnostic",
-      "sha256": "03de1f51873b5da61256d21bc23bb38c22ff685ea6a4961b5f385b4fbbfbb11a",
+      "sha256": "170462afd3dfa2d5313393340c8f82c1bfd11dd28d9b7031291b3d0c91ef569a",
       "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
     },
     {
@@ -332,7 +332,7 @@
     {
       "file": "coreg-stability/single-resampling.svg",
       "kind": "Single-resampling workflow and spatial-texture diagnostic",
-      "sha256": "776ac0ba7e47846c2d0bc6d9c4b7d4adf622a307d560913d9f0c3b9d1f51940f",
+      "sha256": "c6a8a9de34a72195626e0bd7fe8269bbf3b253c21dc26c3fe7d67a5911615767",
       "description": "Anonymous four-individual comparison; spatial gradient is a descriptive proxy, not effective resolution."
     },
     {
@@ -392,14 +392,183 @@
     {
       "file": "ridgepfm/network-taxonomies-softmax-poster.png",
       "kind": "Taxonomy WTA and representative softmax animation",
-      "sha256": "fa6925558f27ecfc5d0f43ac1e1fdb5026ca7e883a11c654b69dfeba938bc8a6",
+      "sha256": "c1e7cabc7961f9403a042cd259fdfb985627cebe0399a6136b7b7852c4bd59e4",
       "description": "20 frames; fixed WTA borders on softmax, shared Low\u2013High scale, actual taxonomy-specific labels."
     },
     {
       "file": "ridgepfm/network-taxonomies-softmax.gif",
       "kind": "Taxonomy WTA and representative softmax animation",
-      "sha256": "b29f209b40401ac3a13b03446bf36959b038cf2db9e10f562ef0ae301e365205",
+      "sha256": "0eecfbf3379ea12a39e8c84fa1d1603166d5c51c178942e4100d3adf16d06dcf",
       "description": "20 frames; fixed WTA borders on softmax, shared Low\u2013High scale, actual taxonomy-specific labels."
+    },
+    {
+      "file": "ridgepfm/ridgepfm_individual_information.svg",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "6281561825612649bfa2b04b70bf42b5bc6b32c0b295003cf7beb97245d170ad"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_individual_information.png",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "2c973939f74cd338e53aec760b58c5855eeec812163a9e3268314a9a5b63b051"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_parameter_ranges.png",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "6db83f04280afe67f30b6cfae185ee736fd69276d85675295a8f1c95b71ef60c"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_reliability_specificity.png",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "563e395b38df2253369081fa66eba3e65c0939bd6a84ba46c3545498761d56b9"
+    },
+    {
+      "file": "ridgepfm/ridgepfm-cv-me01-poster.png",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "5d736d2301c83d9513dedde9670ebf932ccda5d20ecc4555d22352bcf8b22315"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_parameter_ranges.pdf",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "e1cb009e041676034f192c57297c6ac514782719a5cf2b8c0574b482a640dbac"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_cv_tradeoff.pdf",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "ee7f39439bd4b7e81c84674f49dec201b425aff0992690ab8a7c5c3a7779ca89"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_cv_tradeoff.png",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "6d4f5814ff2a2b121467fa309aa6e82638bc725df38a07bd89e048bd833a19a5"
+    },
+    {
+      "file": "ridgepfm/ridgepfm-cv-grid-validation.json",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "494d4fe9363c03a0ede0e9b5aa62c3d89d672c754496648e7d6f902d02b29b35"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_reliability_specificity.pdf",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "bc0b101f6f6b4e2d9437fb1605f05af068fc3fc21425e26c60a36371c4cbb084"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_individual_information.pdf",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "9b2867bf93b707a9a9b31a96f662d656732cca553dc5ee9a6709200bcf2d90b1"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_parameter_ranges.svg",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "415aad217e25cd77739254eab204169a5bba05a6eb3711e11142746d03894ada"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_cv_tradeoff.svg",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "b3549675ca85a9bcc33ceb43b8167186aac19b47bb1a2ebb2f4bef93f620d47d"
+    },
+    {
+      "file": "ridgepfm/ridgepfm_reliability_specificity.svg",
+      "kind": "RidgePFM parameter and CV documentation",
+      "description": "Reviewed parameter figures and example subject; original numerical results retained.",
+      "sha256": "d6cdd57dd029253267fec98281665e1444e6a11f3f8fcb9a54d887a12a20bf9d"
+    },
+    {
+      "file": "README.html",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "0fb100b0bbe54110e604a9c5e6eb9cb4a084c5088fc0402049b7e378710fda87"
+    },
+    {
+      "file": "docs.css",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "91c427cd34691e7e4cbd2185adc630b85bf5243d28260153c930e7bd5a0c37e6"
+    },
+    {
+      "file": "coreg-stability/scan_metrics.csv",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "60559a28024ca5d477f92ae0ccb87c6c346ce43cde3b69f220e0ed1796566e53"
+    },
+    {
+      "file": "coreg-stability/refinement_spread.svg",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "19ada877cc8faeacaf715f68d13a3f4b76d1cc7c5728fc8aae8d0b61fe616c25"
+    },
+    {
+      "file": "coreg-stability/refinement_stability_sharpness.svg",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "a603b46b3d2b37082f1ee57405ff8a63ba7da720245f61ddc1c16192234f568c"
+    },
+    {
+      "file": "coreg-stability/six_subject_stability.svg",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "b9d55fbd321a9d569301b1907e353212dc83c949613b0e0420aa9e616a963ea7"
+    },
+    {
+      "file": "coreg-stability/style_render.json",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "7447e98fc9e01f0f10ee61bdb60e0adc549aca8a3ab4d85bf4efcf540cfa6104"
+    },
+    {
+      "file": "ridgepfm/ridgepfm-figure-render.json",
+      "kind": "Documentation presentation",
+      "description": "Shared typography or rendering of saved measurements.",
+      "sha256": "d1d709ae2b3964a425d3e385e77f62bef4d74942218d5f7e32b697757553aae9"
+    },
+    {
+      "file": "me01-alignment-comparison.mp4",
+      "sha256": "2196d4210248818d742652fda3c23a4b959f96af7306ae530c1620e68bd1cc28",
+      "kind": "ME01 quality-control example",
+      "description": "Fixed-crop alignment across 44 acquisitions."
+    },
+    {
+      "file": "me01-alignment-comparison.gif",
+      "sha256": "39f936316a063a616b6bb01a60c3a9ce28f0ec9a11d3497f0967af1692b26ab5",
+      "kind": "ME01 quality-control example",
+      "description": "Fixed-crop alignment across 44 acquisitions."
+    },
+    {
+      "file": "me01-alignment-refined.mp4",
+      "sha256": "f73ab96c39f243ca2b4112e21d5da2042dbe780d6cbdf8b5353e1d75ae72813d",
+      "kind": "ME01 quality-control example",
+      "description": "Fixed-crop alignment across 44 acquisitions."
+    },
+    {
+      "file": "me01-alignment-refined.gif",
+      "sha256": "28edef4ae7ede14442dc9c6598650f348046026a270edef3e7c062dc66c2aeb1",
+      "kind": "ME01 quality-control example",
+      "description": "Fixed-crop alignment across 44 acquisitions."
+    },
+    {
+      "file": "ridgepfm/cv-networks-softmax-poster.png",
+      "kind": "CV-selected example and matching softmax maps",
+      "description": "Same all-data refit as the CV example: lambda 30, spatial prior 0.1; Connectome Workbench flat and inflated surfaces.",
+      "sha256": "074f2517b32432641e52459435d96edb4e32ce66799d1b4814c50cae38511685"
+    },
+    {
+      "file": "ridgepfm/cv-networks-softmax.gif",
+      "kind": "CV-selected example and matching softmax maps",
+      "description": "Same all-data refit as the CV example: lambda 30, spatial prior 0.1; Connectome Workbench flat and inflated surfaces.",
+      "sha256": "db639c2d55ec4725caffe514900bf472d2b938264b164dc1b901c1e794594e11",
+      "color_encoding": "Per-frame palettes preserve the 64 most frequent rendered RGB colors exactly; verified after GIF decoding."
     }
   ]
 }
